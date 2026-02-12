@@ -13,6 +13,5 @@ wheels/
 .claude
 
 # Reflex (App)
-pdl_lt_sg_predict_app/.web
-pdl_lt_sg_predict_app/.states
-pdl_lt_sg_predict_app/*.db
+.web
+.states
