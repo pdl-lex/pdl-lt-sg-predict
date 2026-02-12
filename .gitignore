@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Claude Code
+.claude
+
+# Reflex (App)
+pdl_lt_sg_predict_app/.web
+pdl_lt_sg_predict_app/.states
+pdl_lt_sg_predict_app/*.db

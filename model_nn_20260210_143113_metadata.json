@@ -1,0 +1,9 @@
+{
+  "model_type": "nn",
+  "accuracy": 0.756166563522235,
+  "training_time": 110.88407611846924,
+  "timestamp": "20260210_143113",
+  "num_samples": 113127,
+  "num_classes": 421,
+  "model_file": "model_nn_20260210_143113.pkl"
+}

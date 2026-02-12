@@ -1,0 +1,9 @@
+{
+  "model_type": "logistic",
+  "accuracy": 0.6755370877906463,
+  "training_time": 4286.179717063904,
+  "timestamp": "20260210_143626",
+  "num_samples": 113127,
+  "num_classes": 421,
+  "model_file": "model_logistic_20260210_143626.pkl"
+}

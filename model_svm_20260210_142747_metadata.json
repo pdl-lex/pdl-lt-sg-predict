@@ -1,0 +1,9 @@
+{
+  "model_type": "svm",
+  "accuracy": 0.811643532844134,
+  "training_time": 119.86400818824768,
+  "timestamp": "20260210_142747",
+  "num_samples": 113127,
+  "num_classes": 421,
+  "model_file": "model_svm_20260210_142747.pkl"
+}
