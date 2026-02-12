@@ -1,0 +1,15 @@
+# Reflex
+.states
+.web
+assets/external/
+
+# Python
+__pycache__/
+*.py[cod]
+*.db
+
+# Virtual environments
+.venv
+
+# Claude Code
+.claude
