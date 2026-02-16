@@ -20,13 +20,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sachgruppen_classifier import SachgruppenClassifier, train_and_evaluate
 from pdl_lt_reflex_aggrid_wrapper import ag_grid
-from .components import base_layout
+from .components import base_layout, ENABLE_TRAINING
 
 # ============ Configuration ============
-
-# WICHTIG: Training-Seite ist standardmäßig deaktiviert (für schwache VMs)
-# Setzen Sie ENABLE_TRAINING = True wenn Sie lokal auf einem starken System arbeiten
-ENABLE_TRAINING = False
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 

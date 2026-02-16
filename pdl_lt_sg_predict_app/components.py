@@ -1,7 +1,8 @@
 import reflex as rx
 
 
-ENABLE_TRAINING = True
+# Setzen Sie ENABLE_TRAINING = True wenn Sie lokal auf einem starken System arbeiten
+ENABLE_TRAINING = False
 
 AVAILABLE_MODELS = [
     ("svm", "Linear SVM"),

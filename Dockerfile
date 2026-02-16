@@ -31,5 +31,5 @@ EXPOSE 3000
 # Production mode
 ENV REFLEX_ENV=prod
 
-# App starten
-CMD ["uv", "run", "reflex", "run", "--env", "prod"]
+# App starten (backend-host 0.0.0.0 für Docker-Netzwerk)
+CMD ["uv", "run", "reflex", "run", "--env", "prod", "--backend-host", "0.0.0.0"]
