@@ -13,19 +13,20 @@ from datetime import datetime
 import sys
 
 # Füge Parent-Verzeichnis zum Path hinzu um sachgruppen_classifier zu importieren
-# __file__ -> pdl_lt_sg_predict_app.py
+# __file__ -> pdl_lt_sg_predict_app/pdl_lt_sg_predict_app.py
 # parent -> pdl_lt_sg_predict_app/ (package)
-# parent.parent -> pdl_lt_sg_predict_app/ (project root)
-# parent.parent.parent -> pdl-lt-sg-predict/ (wo sachgruppen_classifier.py liegt)
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# parent.parent -> pdl-lt-sg-predict/ (project root, wo sachgruppen_classifier.py liegt)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sachgruppen_classifier import SachgruppenClassifier, train_and_evaluate
+from pdl_lt_reflex_aggrid_wrapper import ag_grid
+from .components import base_layout
 
 # ============ Configuration ============
 
 # WICHTIG: Training-Seite ist standardmäßig deaktiviert (für schwache VMs)
 # Setzen Sie ENABLE_TRAINING = True wenn Sie lokal auf einem starken System arbeiten
-ENABLE_TRAINING = True
+ENABLE_TRAINING = False
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -37,6 +38,22 @@ AVAILABLE_MODELS = [
     ("nn", "Neural Network (langsam)"),
     ("xgboost", "XGBoost (sehr langsam, beste Accuracy)"),
 ]
+
+# Sachgruppen-Mapping laden (Nummer -> Beschreibung)
+SACHGRUPPEN_CSV = Path(__file__).parent.parent / "sachgruppen.csv"
+SACHGRUPPEN_MAP: dict[str, str] = {}
+if SACHGRUPPEN_CSV.exists():
+    _sg_df = pd.read_csv(SACHGRUPPEN_CSV, sep=";", dtype=str)
+    SACHGRUPPEN_MAP = dict(zip(_sg_df["Nummer"], _sg_df["Sachgruppe"]))
+
+# Mapping von internem model_type zu schönem Display-Namen
+MODEL_DISPLAY_NAMES = {
+    "svm": "Linear SVM",
+    "logistic": "Logistic Regression",
+    "rf": "Random Forest",
+    "nn": "Neural Network",
+    "xgboost": "XGBoost",
+}
 
 # ============ States ============
 
@@ -67,7 +84,6 @@ class TrainingState(BaseState):
     # Training Config
     selected_model: str = "svm"
     test_size: float = 0.2
-    use_gpu: bool = False
 
     # Training Status
     is_training: bool = False
@@ -132,7 +148,7 @@ class TrainingState(BaseState):
 
             # Validate CSV structure
             try:
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path, sep=None, engine="python")
 
                 required_cols = ['lemma', 'bedeutung', 'sachgruppe']
                 if not all(col in df.columns for col in required_cols):
@@ -192,7 +208,7 @@ class TrainingState(BaseState):
             # Model-Namen für Speicherung
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_filename = f"model_{self.selected_model}_{timestamp}.pkl"
-            model_path = Path(__file__).parent.parent.parent / model_filename
+            model_path = Path(__file__).parent.parent / model_filename
 
             self.training_progress = f"Trainiere {self.selected_model.upper()}-Modell..."
             yield
@@ -206,7 +222,6 @@ class TrainingState(BaseState):
                 test_size=self.test_size,
                 tune=False,
                 save_path=str(model_path),
-                use_gpu=self.use_gpu
             )
 
             self.training_time = time.time() - start_time
@@ -217,6 +232,7 @@ class TrainingState(BaseState):
             # Speichere Metadaten
             metadata = {
                 "model_type": self.selected_model,
+                "model_name": MODEL_DISPLAY_NAMES.get(self.selected_model, self.selected_model),
                 "accuracy": accuracy,
                 "training_time": self.training_time,
                 "timestamp": timestamp,
@@ -226,7 +242,7 @@ class TrainingState(BaseState):
             }
 
             metadata_filename = model_filename.replace(".pkl", "_metadata.json")
-            metadata_path = Path(__file__).parent.parent.parent / metadata_filename
+            metadata_path = Path(__file__).parent.parent / metadata_filename
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
@@ -257,7 +273,7 @@ class AnalysisState(BaseState):
         yield
 
         try:
-            models_dir = Path(__file__).parent.parent.parent
+            models_dir = Path(__file__).parent.parent
             models = []
 
             # Finde alle .pkl Dateien
@@ -270,17 +286,49 @@ class AnalysisState(BaseState):
                         metadata = json.load(f)
                 else:
                     # Fallback: Basisdaten aus Dateiname extrahieren
+                    model_type = pkl_file.stem.split('_')[1] if '_' in pkl_file.stem else "unknown"
                     metadata = {
                         "model_file": pkl_file.name,
-                        "model_type": pkl_file.stem.split('_')[1] if '_' in pkl_file.stem else "unknown",
+                        "model_type": model_type,
                         "accuracy": 0.0,
                         "timestamp": datetime.fromtimestamp(pkl_file.stat().st_mtime).strftime("%Y%m%d_%H%M%S")
                     }
 
-                models.append(metadata)
+                # Display-Name sicherstellen
+                model_name = metadata.get("model_name") or MODEL_DISPLAY_NAMES.get(
+                    metadata.get("model_type", ""), metadata.get("model_type", "")
+                )
 
-            # Sortiere nach Timestamp (neueste zuerst)
-            models.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+                # Werte sinnvoll formatieren
+                accuracy = round(metadata.get("accuracy", 0.0), 3)
+
+                training_time = ""
+                if "training_time" in metadata:
+                    secs = int(metadata["training_time"])
+                    h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
+                    training_time = f"{h:02d}:{m:02d}:{s:02d}"
+
+                date = metadata.get("timestamp", "")
+                try:
+                    dt = datetime.strptime(date, "%Y%m%d_%H%M%S")
+                    date = dt.strftime("%d.%m.%y")
+                except ValueError:
+                    pass
+
+                models.append({
+                    "model_name": model_name,
+                    "accuracy": accuracy,
+                    "training_time": training_time,
+                    "date": date,
+                    "num_samples": metadata.get("num_samples", 0),
+                    "num_classes": metadata.get("num_classes", 0),
+                })
+
+            # Sortiere nach Datum (neueste zuerst), dd.mm.yy -> yy.mm.dd für korrekte Sortierung
+            models.sort(
+                key=lambda x: ".".join(reversed(x.get("date", "").split("."))),
+                reverse=True
+            )
 
             self.models_list = models
 
@@ -296,6 +344,7 @@ class PredictionState(BaseState):
     input_lemma: str = ""
     input_bedeutung: str = ""
     prediction_result: str = ""
+    prediction_result_description: str = ""
     prediction_proba: float = 0.0
 
     # Batch Prediction
@@ -347,11 +396,10 @@ class PredictionState(BaseState):
 
     def load_available_models(self):
         """Lädt Liste verfügbarer Modelle"""
-        # __file__ -> pdl_lt_sg_predict_app.py
+        # __file__ -> pdl_lt_sg_predict_app/pdl_lt_sg_predict_app.py
         # parent -> pdl_lt_sg_predict_app/ (package)
-        # parent.parent -> pdl_lt_sg_predict_app/ (project)
-        # parent.parent.parent -> pdl-lt-sg-predict/ (wo Modelle liegen)
-        models_dir = Path(__file__).parent.parent.parent
+        # parent.parent -> pdl-lt-sg-predict/ (project root, wo Modelle liegen)
+        models_dir = Path(__file__).parent.parent
         model_files = [f.name for f in models_dir.glob("model_*.pkl")]
         self.available_models = sorted(model_files, reverse=True)
 
@@ -365,11 +413,12 @@ class PredictionState(BaseState):
 
         self.is_predicting = True
         self.prediction_result = ""
+        self.prediction_result_description = ""
         self.prediction_proba = 0.0
         yield
 
         try:
-            models_dir = Path(__file__).parent.parent.parent
+            models_dir = Path(__file__).parent.parent
             model_path = models_dir / self.selected_model_file
 
             # Modell laden
@@ -383,6 +432,9 @@ class PredictionState(BaseState):
 
             prediction = clf.predict(X_pred)[0]
             self.prediction_result = str(prediction)
+            self.prediction_result_description = SACHGRUPPEN_MAP.get(
+                str(prediction), "(unbekannt)"
+            )
 
             # Wahrscheinlichkeit wenn verfügbar
             try:
@@ -425,7 +477,7 @@ class PredictionState(BaseState):
                 f.write(content)
 
             # Validate
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, sep=None, engine="python")
             if 'lemma' not in df.columns or 'bedeutung' not in df.columns:
                 self.batch_upload_error = "CSV muss 'lemma' und 'bedeutung' Spalten enthalten"
                 return
@@ -436,7 +488,7 @@ class PredictionState(BaseState):
             self.is_predicting = True
             yield
 
-            models_dir = Path(__file__).parent.parent.parent
+            models_dir = Path(__file__).parent.parent
             model_path = models_dir / self.selected_model_file
 
             clf = SachgruppenClassifier.load(str(model_path))
@@ -446,10 +498,12 @@ class PredictionState(BaseState):
             # Ergebnisse sammeln
             results = []
             for idx, (_, row) in enumerate(df.iterrows()):
+                sg = str(predictions[idx])
                 results.append({
                     'lemma': row['lemma'],
                     'bedeutung': row['bedeutung'],
-                    'sachgruppe': predictions[idx]
+                    'sachgruppe': sg,
+                    'beschreibung': SACHGRUPPEN_MAP.get(sg, "(unbekannt)"),
                 })
 
             self.batch_results = results
@@ -459,56 +513,17 @@ class PredictionState(BaseState):
         finally:
             self.is_predicting = False
 
+    def download_batch_csv(self):
+        """Batch-Ergebnisse als CSV herunterladen"""
+        if not self.batch_results:
+            return
 
-# ============ UI Components ============
-
-def navbar() -> rx.Component:
-    """Navigation Bar"""
-    nav_items = [
-        ("Start", "/"),
-        ("Analyse", "/analyse"),
-        ("Vorhersage", "/vorhersage"),
-    ]
-
-    if ENABLE_TRAINING:
-        nav_items.insert(1, ("Training", "/training"))
-
-    return rx.hstack(
-        rx.heading("Sachgruppen-Klassifikation", size="6", color="var(--jade-11)"),
-        rx.spacer(),
-        rx.hstack(
-            *[
-                rx.link(
-                    rx.button(
-                        name,
-                        variant="ghost",
-                        color_scheme="jade"
-                    ),
-                    href=href
-                )
-                for name, href in nav_items
-            ],
-            spacing="2"
-        ),
-        padding="1rem",
-        width="100%",
-        border_bottom="1px solid var(--gray-6)"
-    )
-
-
-def base_layout(*children) -> rx.Component:
-    """Base Layout mit Navigation"""
-    return rx.vstack(
-        navbar(),
-        rx.container(
-            *children,
-            padding_top="2rem",
-            padding_bottom="2rem",
-        ),
-        spacing="0",
-        width="100%",
-        min_height="100vh"
-    )
+        df = pd.DataFrame(self.batch_results)
+        csv_content = df.to_csv(index=False, sep=";")
+        return rx.download(
+            data=csv_content,
+            filename="vorhersage_ergebnisse.csv",
+        )
 
 
 # ============ Pages ============
@@ -517,7 +532,7 @@ def index() -> rx.Component:
     """Start-Seite"""
     return base_layout(
         rx.vstack(
-            rx.heading("Willkommen", size="7", color="var(--jade-12)"),
+            rx.heading("START", size="4", color="var(--jade-12)", weight="light"),
             rx.text(
                 "Machine Learning Tool für automatische Sachgruppen-Klassifikation von Wörterbuch-Einträgen.",
                 size="4",
@@ -618,23 +633,35 @@ def training_page() -> rx.Component:
     if not ENABLE_TRAINING:
         return base_layout(
             rx.vstack(
-                rx.heading("Training deaktiviert", size="7", color="var(--red-11)"),
-                rx.text(
-                    "Das Training ist standardmäßig deaktiviert, um schwache VMs zu schonen.",
-                    size="4"
+                rx.heading("TRAINING", size="4", color="var(--jade-12)", weight="light"),
+                rx.callout(
+                    rx.vstack(
+                        rx.text(
+                            "Das Training ist im VM-Betrieb deaktiviert.",
+                            font_weight="bold",
+                        ),
+                        rx.text(
+                            "Der Trainingsmodus steht nur bei lokaler Ausführung zur Verfügung, "
+                            "da das Training rechenintensiv ist und auf einer VM zu langsam wäre.",
+                        ),
+                        rx.text(
+                            "Um Training zu aktivieren, setzen Sie ENABLE_TRAINING = True "
+                            "in pdl_lt_sg_predict_app.py.",
+                            size="2",
+                            color="var(--gray-11)",
+                        ),
+                        spacing="2",
+                    ),
+                    icon="info",
+                    color_scheme="amber",
                 ),
-                rx.text(
-                    "Um Training zu aktivieren, setzen Sie ENABLE_TRAINING = True in der App-Konfiguration.",
-                    size="3",
-                    color="var(--gray-11)"
-                ),
-                spacing="4"
+                spacing="4",
             )
         )
 
     return base_layout(
         rx.vstack(
-            rx.heading("Model Training", size="7", color="var(--jade-12)"),
+            rx.heading("TRAINING", size="4", color="var(--jade-12)", weight="light"),
 
             # Data Upload
             rx.card(
@@ -710,16 +737,6 @@ def training_page() -> rx.Component:
                             spacing="1"
                         ),
 
-                        rx.vstack(
-                            rx.text("GPU-Training:", font_weight="bold"),
-                            rx.switch(
-                                checked=TrainingState.use_gpu,
-                                on_change=TrainingState.set_use_gpu
-                            ),
-                            align_items="start",
-                            spacing="1"
-                        ),
-
                         spacing="4",
                         width="100%"
                     ),
@@ -790,9 +807,18 @@ def training_page() -> rx.Component:
 
 def analyse_page() -> rx.Component:
     """Analyse-Seite"""
+    models_column_defs = [
+        ag_grid.column_def(field="model_name", header_name="Model", sortable=True, filter=True),
+        ag_grid.column_def(field="accuracy", header_name="Accuracy", sortable=True, filter=True),
+        ag_grid.column_def(field="training_time", header_name="Training Time", sortable=True, filter=True),
+        ag_grid.column_def(field="date", header_name="Date", sortable=True, filter=True),
+        ag_grid.column_def(field="num_samples", header_name="Samples", sortable=True, filter=True),
+        ag_grid.column_def(field="num_classes", header_name="Classes", sortable=True, filter=True),
+    ]
+
     return base_layout(
         rx.vstack(
-            rx.heading("Model-Analyse", size="7", color="var(--jade-12)"),
+            rx.heading("ANALYSE", size="4", color="var(--jade-12)", weight="light"),
             rx.text("Vergleich aller trainierten Modelle", color="var(--gray-11)"),
 
             rx.button(
@@ -806,10 +832,15 @@ def analyse_page() -> rx.Component:
                 rx.vstack(
                     rx.heading(f"{AnalysisState.models_count} Modelle gefunden", size="5"),
 
-                    rx.data_table(
-                        data=AnalysisState.models_list,
-                        columns=["model_type", "accuracy", "training_time", "timestamp", "num_samples", "num_classes"],
-                        sort=True
+                    ag_grid(
+                        id="models_grid",
+                        row_data=AnalysisState.models_list,
+                        column_defs=models_column_defs,
+                        default_col_def={"flex": 1, "minWidth": 80},
+                        resizable=True,
+                        dom_layout="autoHeight",
+                        height="None",
+                        column_size="sizeToFit",
                     ),
 
                     spacing="3",
@@ -829,7 +860,7 @@ def vorhersage_page() -> rx.Component:
     """Vorhersage-Seite"""
     return base_layout(
         rx.vstack(
-            rx.heading("Vorhersage", size="7", color="var(--jade-12)"),
+            rx.heading("VORHERSAGE", size="4", color="var(--jade-12)", weight="light"),
 
             # Model Selection
             rx.card(
@@ -888,6 +919,7 @@ def vorhersage_page() -> rx.Component:
                         rx.callout(
                             rx.box(
                                 rx.text(f"Sachgruppe: {PredictionState.prediction_result}", font_weight="bold", size="4"),
+                                rx.text(f"Beschreibung: {PredictionState.prediction_result_description}", size="3"),
                                 rx.cond(
                                     PredictionState.prediction_proba > 0,
                                     rx.text(f"Wahrscheinlichkeit: {PredictionState.prediction_proba_formatted}")
@@ -935,13 +967,34 @@ def vorhersage_page() -> rx.Component:
                     rx.cond(
                         PredictionState.has_batch_results,
                         rx.vstack(
-                            rx.heading(f"{PredictionState.batch_results_count} Vorhersagen", size="4"),
-                            rx.data_table(
-                                data=PredictionState.batch_results,
-                                columns=["lemma", "bedeutung", "sachgruppe"],
-                                pagination=True,
-                                search=True,
-                                sort=True
+                            rx.hstack(
+                                rx.heading(f"{PredictionState.batch_results_count} Vorhersagen", size="4"),
+                                rx.spacer(),
+                                rx.button(
+                                    rx.icon("download", size=16),
+                                    "CSV herunterladen",
+                                    on_click=PredictionState.download_batch_csv,
+                                    variant="outline",
+                                    color_scheme="jade",
+                                    size="2",
+                                ),
+                                width="100%",
+                                align_items="center",
+                            ),
+                            ag_grid(
+                                id="batch_results_grid",
+                                row_data=PredictionState.batch_results,
+                                column_defs=[
+                                    ag_grid.column_def(field="lemma", header_name="Lemma", sortable=True, filter=True),
+                                    ag_grid.column_def(field="bedeutung", header_name="Bedeutung", sortable=True, filter=True),
+                                    ag_grid.column_def(field="sachgruppe", header_name="Sachgruppe", sortable=True, filter=True),
+                                    ag_grid.column_def(field="beschreibung", header_name="Beschreibung", sortable=True, filter=True),
+                                ],
+                                default_col_def={"flex": 1, "minWidth": 100},
+                                resizable=True,
+                                dom_layout="autoHeight",
+                                height="None",
+                                column_size="sizeToFit",
                             ),
                             spacing="3",
                             width="100%"
@@ -972,8 +1025,7 @@ app = rx.App(
     )
 )
 
-app.add_page(index, route="/")
-if ENABLE_TRAINING:
-    app.add_page(training_page, route="/training")
-app.add_page(analyse_page, route="/analyse")
-app.add_page(vorhersage_page, route="/vorhersage")
+app.add_page(index, route="/", title="SG-Predict | Start")
+app.add_page(training_page, route="/training", title="SG-Predict | Training")
+app.add_page(analyse_page, route="/analyse", title="SG-Predict | Analyse")
+app.add_page(vorhersage_page, route="/vorhersage", title="SG-Predict | Vorhersage")

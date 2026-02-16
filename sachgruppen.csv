@@ -1,0 +1,394 @@
+Nummer;Sachgruppe
+1100;Formwörter, grammatische Wörter
+1110;Kopula
+1120;gramm. Wort
+1130;Pronomina
+1140;Adverbien u. ä.
+1200;Schallbildungen
+1210;Reimwort
+1220;Schallwort
+1230;Interjektion/Ausruf
+1240;Fluchwort
+1300;Name
+2000;Die unbelebte Natur
+2100;Himmel, Himmelskörper
+2200;Niederschläge, Wetter
+2300;Wind
+2400;Temperatur
+2500;Jahreszeiten
+2600;Gewässer
+2700;Boden, Beschaffenheit des Bodens
+2800;Geländeformen
+2900;Minerale, Metalle
+2910;Stein, Fels
+3000;Pflanze und ihre Frucht
+3010;allg. Pflanzenteile (Knospe, Zweig u.a.)
+3020;Pflanzenleben allgemein
+3100;Bäume
+3110;Wald, Waldbaum
+3120;Obst-, Fruchtbaum
+3130;Holz
+3200;Strauch, Beerenstrauch
+3210;essbar
+3220;nicht essbar
+3300;Getreidepflanze
+3310;Roggen
+3320;Weizen
+3330;Hafer
+3340;sonstiges
+3400;Gemüse/Hackfrucht/Grünfutter
+3500;Wiesen- und Waldpflanze/sonstige Pflanze
+3510;Pilze (essbar u. nicht essbar)
+3600;Wasserpflanze/Pflanze am Wasser
+3700;Heilpflanze/Gewürzpflanze
+3800;Zier- oder Zimmerpflanze
+3900;Unkraut
+4000;Tier
+4010;Körperteile u.a.
+4020;Lebensäußerungen
+4030;Behausung
+4100;Säugetier
+4110;Haustier
+4111;Rind
+4112;Pferd
+4113;Schwein
+4114;Schaf
+4115;Ziege
+4116;Katze
+4117;Hund
+4118;Haustiername
+4120;kl. Tier in der Umgebung d. Menschen
+4130;Feld- und Waldtier
+4140;Tier am Wasser
+4150;aussereuropäisches Tier
+4200;Vogel
+4210;Vogel in Wald und Feld
+4220;Raubvogel
+4230;Federwild
+4240;Hausgeflügel
+4250;aussereurop., fremder Vogel
+4300;Wassertier, Fisch
+4310;Süsswasserfisch
+4320;Meeresfisch
+4400;Reptil und Amphibium
+4500;Weichtier
+4600;Krebstier
+4700;Insekt, Spinne
+4800;Ringelwurm
+4900;Fabeltier
+5000;Der Mensch (physisch)
+5100;Geschlecht
+5110;allg. Bez.
+5120;Bez. von Menschen beiderlei Geschlechts nach phys./äusseren Eigenschaften
+5121;langer Mensch
+5122;kleiner Mensch
+5123;dicker Mensch
+5124;dünner Mensch
+5125;alter Mensch
+5126;junger Mensch
+5127;schöner/hässlicher Mensch
+5130;Mann allgem. Bez.
+5140;Bez. von Männern nach physischen/äusseren Eigenschaften
+5141;lang/gross
+5142;klein
+5143;dick
+5144;dünn/hager
+5145;alt
+5146;jung
+5147;schön/hässlich
+5150;Frau allgem. Bez.
+5160;Bez. von Frauen nach physischen/äusseren Eigenschaften
+5161;lang/gross
+5162;klein
+5163;dick
+5164;dünn/hager
+5165;alt
+5166;jung
+5167;schön/hässlich
+5170;Kind (beiderlei Geschlechts)
+5171;dick
+5172;dünn/hager
+5173;lebendig/zappelig
+5174;ungehorsam
+5200;Körperteile (äussere)
+5210;phys. Eigenheiten d. Körpers (z.B. buckelig, Buckel)
+5220;phys. Eigenheiten d. Körpers (Verben, z.B. abmagern)
+5230;phys. Fähigkeiten, manuelle Fertigkeiten (z. B. ungeschickt)
+5240;innere Körperteile (Knochen, Muskeln etc.)
+5300;Organe und ihre Funktion
+5310;Hirn und Nerven
+5320;Blutkreislauf
+5330;Atmung
+5340;Verdauung u. diverse Ausscheidungen
+5350;Fortpflanzung, Sexualität
+5360;Sprech-, Kauwerkzeuge (z.B. lallen, sprechen u.a.)
+5400;Sinne und ihre Aktivität
+5410;Gesichtssinn
+5420;Gehör
+5430;Geruch
+5440;Geschmack
+5450;Tastsinn
+5500;Bewegungen und Haltungen, Lebensäusserungen
+5510;Mimik
+5520;Bewegungen und Tätigkeiten der Hände
+5521;hauen, verprügeln
+5530;Bewegungen mit den Beinen, Fortbewegung
+5531;herankommen, sich nähern
+5532;sich entfernen, verschwinden
+5533;schnell laufen
+5540;körperlich arbeiten, schaffen, sich mühen
+5550;Bewegungen mit dem Körper
+5560;Lautäusserungen (Lachen, Rufen usw.)
+5570;sich eilen, tummeln bzw. trödeln
+5600;der Schlaf/Erschöpfung/Erholung
+5700;Gesundheit und Krankheit
+5800;Ablauf des Lebens
+5810;vor der Geburt
+5820;Geburt
+5830;Säugling, Kleinkind
+5840;Kindheit/Jugend
+5841;lärmende Kinderschar
+5850;Erwachsensein
+5860;Alter
+5870;Tod
+5900;Bedürfnisse
+5910;Ernährung (Essen)
+5911;fertig zubereitete Speisen, Gerichte (z.B. Dampfnudel)
+5920;Trinken/Genussmittel/Wirtshaus
+5921;Rauchen
+5925;betrunken, sich betrinken, Alkohol trinken
+5930;Kleidung/Textilien/Gewebe und Ähnliches (Watte)
+5931;Stoffe
+5932;geschlechtsunspezifische Kleidung u. ä. (z.B. Brieftasche, Handtasche, Etui)
+5933;Männerkleidung
+5934;Frauenkleidung
+5935;Kinderkleidung
+5936;Kopfbedeckungen
+5937;Fussbekleidung
+5938;Schmuck u. ä.
+5940;Toilette (Waschen, Kämmen, Haartracht) und Gegenteil
+6000;Der Mensch geistig/moralisch/allg. Verhalten
+6100;Bez. für Menschen nach geistiger/moralischer/ charakterlicher Wertung
+6110;geschlechtsunspezifisch
+6111;Schimpfwörter
+6112;böser Mensch
+6113;guter Mensch
+6114;fauler/fleissiger, liederlicher/ordentlicher Mensch
+6115;Pack, Gesindel
+6116;Mensch mit ungebührlichem Verhalten
+6117;dummer, starrsinniger, leichtsinniger Mensch
+6118;intelligenter, gerissener Mensch
+6119;hochmütig, stolz
+6120;Männer
+6121;Schimpfwörter
+6122;böser Mann
+6123;guter Mann
+6124;fauler, liederlicher Mann
+6125;versoffener Mann
+6126;Mann mit ungebührlichem Verhalten
+6127;dummer, starrsinniger, leichtsinniger Mann
+6128;intelligenter, gerissener Mann
+6129;hochmütig, stolz
+6130;Frauen
+6131;Schimpfwörter
+6132;böse Frau
+6133;gute Frau
+6134;faule/fleissig, liederliche/ordentl. Frau
+6135;schwatzhafte Frau
+6136;Frau mit ungebührlichem Verhalten
+6137;dumme, starrsinnige, leichtsinnige Frau
+6138;intelligente, gerissene Frau
+6139;hochmütig, stolz
+6200;Geistige Fähigkeiten, Verhalten
+6210;Auffassungsgabe
+6220;Gewissen
+6230;Gedächtnis
+6240;Phantasie
+6250;Denken/Wissen
+6260;geistige Beweglichkeit/Unbeweglichkeit, Einstellung/Einschätzung
+6270;Verrücktheit, Überspanntheit
+6280;charakterliche Einstellung (eingebildet usw.)
+6300;Empfindung/Ausdruck der Empfindung
+6310;positiv (Freude, Glück usw.)
+6320;negativ (Schmerz, Verdruss)
+6330;gegen/für andere/anderes (Liebe, Hass, Dank usw.)
+6332;Ausdruck oder Geste der Zuneigung
+6333;Ausdruck oder Geste der Abneigung (Meinung sagen, Kritik)
+6400;Das Wollen
+6405;Adj. auf Wollen bezogen (faul, träge, fleissig)
+6410;Wunsch, Bitte, Dank/Undank
+6415;Bettler/betteln
+6420;Tat, Motiv, Intention (Forderung, Zwang u.a.)
+6421;Suchen/Kontakt aufnehmen/Kommunikation/Finden
+6430;Verwirklichung (Problem, Schwierigkeit, Leichtigkeit)
+6440;Zustimmung, Ablehnung, Leugnen
+6450;Erwartung, Versprechen, Projekte (Pläne, Verzicht u.a.)
+6460;beharren/aufgeben, hindern/anstiften (Gewohnheiten, Entschlüsse)
+6500;Die Moral/Sittlichkeit
+6510;moralische Wertungen (adj.) ehrhaft, liederlich usw.
+6520;Moralbegriffe (Recht, Ehre, Ehrlichkeit usw.)
+6530;Wahrheit/Unwahrheit (lügen, Lügner usw.)
+6540;Betrug/Arglist/Tücke
+6550;Aufgabe, Pflicht (deren Erfüllung oder nicht)
+6560;Böses/Gutes, Falsches/Richtiges tun
+7000;Der Mensch sozial (Arbeit und Umwelt)
+7010;soz. Stellung, Gruppe, Beziehung
+7011;abwertend, negativ
+7012;aufwertend, positiv
+7020;Benehmen, Umgangsformen
+7030;Streit
+7100;Familienleben/Verwandtschaft
+7110;Familiennamen
+7120;Vornamen
+7130;Spitz- und Spottnamen
+7200;Sprache (Mitteilung, Information)/Stillschweigen
+7210;Unterhaltung, Gespräch (Plaudern u.a.)
+7220;Scherz, Spass
+7300;Fest und Spiel/Kurzweil u. Unterhaltung (Jahrmarkt, Zirkus etc.)
+7310;Feste im Jahreslauf
+7311;Kirchweih
+7320;Feste zu bes. Anlässen 
+7321;Hochzeit/Ehestand (z.B. ledig, verheiratet)
+7322;Taufe
+7323;Firmung etc.
+7330;sonst. Feste / bes. Tage
+7340;Sport
+7350;Brauchtum (auch Schreckgestalten)
+7351;Grussformeln u.ä./Anrede
+7360;Kinderspiele
+7370;Klickerspiel
+7380;Kartenspiel
+7390;Gesellschafts-, sonst. Spiele
+7400;Bäuerliche Arbeitswelt
+7401;allgemeines
+7402;landwirtsch. Geräte
+7403;Wagen und Gespann
+7404;Pflug und seine Teile
+7405;Schlitten und seine Teile
+7410;Bauernhof und seine Gebäude
+7420;Feld (Nutzung, Art)
+7430;Feldarbeit
+7440;Acker-, Getreidebau
+7450;Tierhaltung, Wiese, Weide
+7451;Lockrufe/Scheuchrufe für Haustiere
+7455;Milchwirtschaft (Milch, Käse)
+7460;Bienenzucht
+7470;Weinbau
+7480;Gartenbau
+7490;sonst. Kulturen (Tabak, Flachs, Hanf u.a.)
+7500;Handwerk, Industrie, Technik, Arbeit allg.
+7501;Gerät
+7505;Werkzeug
+7510;Maurer, Steinmetz (steinverarb. Handwerk)
+7520;holzverarb. Handwerk
+7525;Bergbau
+7530;metallverarb. Handwerk
+7540;Schuster, Leder- u. Pelzverarbeitung
+7545;Schneider, Textilverarbeitung
+7546;Weber, Weberei, Spinnerei
+7550;Forst, Jagd
+7560;Bäcker
+7565;Metzger
+7570;Fischer
+7580;Müller
+7590;Maler, Anstreicher
+7595;Text/Druck/Grafik/Foto/Zeichnen
+7600;Handel, Finanz
+7610;Münzeinheiten
+7620;Entgelt, Lohn
+7700;Wohnung
+7710;Hausbau (Haus im Allgem. betr.)
+7720;Teile des Hauses
+7730;Einrichtung
+7735;Gefässe
+7736;Haushaltsgeräte
+7740;Küche und Kücheneinrichtung/Vorrat/Küchenarbeiten
+7750;Heizung/Kühlung
+7760;Beleuchtung
+7770;Wäsche
+7780;(Frauen-)Arbeiten in Haus und Haushalt
+7790;Dreck, Kehricht
+7800;Strassen und Verkehr/Transport (auch körperlich)
+7810;Strassen, Wege
+7820;Fahrzeuge
+7830;Eisenbahn
+7840;Post
+7850;Reisen
+7900;Wasserversorgung, Wasserableitung
+8000;Gesellschaftliche Organisation
+8100;Siedlung, Besiedlung, Gegend
+8110;Dorf
+8120;Stadt
+8130;Ortsnamen (Ort u. Bew.)
+8140;Flurnamen (Flur u. Bew.) / Gewässernamen
+8150;Ortsnecknamen (Ort u. Bew.)
+8160;Länder, Gegenden und Bewohner
+8200;Der Staat und seine Institutionen
+8210;Herrschaft, Regierung, Politik
+8220;Verwaltung / Steuer, Abgaben, Ämter usw.
+8221;Grundstück, Grenze, Kataster
+8222;Feuerwehr
+8230;Polizei
+8240;soziale Einrichtungen
+8300;Recht - Justiz
+8310;Verbrechen allg.
+8320;Diebstahl, stehlen, usw.
+8330;Eigentum, Besitz
+8400;Schule, Unterricht, Lesen, Schreiben, Rechnen
+8410;Wissenschaft
+8500;Militär, Krieg/Frieden
+8600;Literatur, Theater, bildende Kunst
+8700;Musik und Tanz
+8710;Musikantensprache
+8720;Singen
+8730;"Musizieren; Instrumente"
+8740;Tanz
+8800;Glaube und Religion
+8810;Volksglaube, Aberglaube
+8820;Christl. Glaube, Bibel
+8830;Kirche und Kircheneinrichtung, Kultgeräte
+8840;Riten, Kulthandlungen
+8850;Religiöses Volksbrauchtum
+8860;Religiöse Feste/Heiligentage/bes. religiöse Tage, Heilige
+8870;Kleriker, rel. Berufe
+9000;Mensch und Universum (Abstrakte Welt)
+9100;Das Sein, die Existenz
+9110;Bedrohung, Existenzgefährdung allg.
+9120;Gelingen/Geraten/Entstehen/Werden
+9130;Vergehen/Zerstörung/Missraten
+9200;Qualitäten und Zustände
+9210;Dimension, Ausdehnung
+9211;Länge
+9212;Breite
+9213;Höhe/Tiefe
+9214;Sonstiges
+9220;Form
+9230;Physikal., chemische Qualitäten/Vorgänge, Stoffe/Material
+9231;Farben, Farbeindrücke
+9233;Flüssigkeit
+9235;Feuer
+9240;Einstufung (tauglich, nützlich, wichtig, pers. Bewertung)
+9300;Relation
+9310;Relation (Präpositionen)
+9311;Trennung/Ablösung/Kontrast (ab, weg)
+9312;Verbundenheit (zu)
+9313;Beginn
+9314;Ende
+9315;ausstatten (versehen mit, übergeben, aufbewahren, erhalten, befreien von, wegnehmen)
+9316;erscheinen/verbergen, auftauchen/schwinden (übertr. und gegenständlich)
+9320;Ordnung/Unordnung (auch Äusseres, Zahlen, Ruhe)
+9330;Wert/Mass (wirtschaftl. Bewertung, Verlust, Schaden, Mängel, Fehler)
+9340;Längenmasse
+9350;Hohlmasse
+9360;Flächenmasse
+9370;Gewichte
+9400;Menge/Wiederholung/Intensivierung/Mangel/Abschwächung
+9500;Raum /Richtung/Stelle (auch Demonstr. da, dort)
+9510;Richtung
+9520;Lage
+9600;Zeit
+9700;Ursache, Grund, Zweck
+9710;Bedingung
+9720;Folge, Wirkung
+9800;Bewegung, Wechsel, Veränderung/Stillstand
+9900;Bedingung
