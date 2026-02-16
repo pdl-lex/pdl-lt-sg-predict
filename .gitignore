@@ -18,3 +18,7 @@ wheels/
 # Reflex (App)
 .web
 .states
+
+# ML-Modelle (zu groß für Git, per FTP auf Server laden)
+*.pkl
+*_metadata.json
