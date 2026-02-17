@@ -575,7 +575,7 @@ if __name__ == '__main__':
                        help='Modell-Typ (nn = Neural Network)')
     parser.add_argument('--tune', action='store_true',
                        help='Hyperparameter-Tuning durchführen')
-    parser.add_argument('--save', type=str, default='sachgruppen_model.pkl',
+    parser.add_argument('--save', type=str, default='models/sachgruppen_model.pkl',
                        help='Pfad zum Speichern des Modells')
     parser.add_argument('--predict', action='store_true',
                        help='Interaktiver Vorhersage-Modus')

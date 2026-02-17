@@ -80,7 +80,7 @@ def compare_models(csv_file, save_models=True, test_size=0.2):
             start_time = time.time()
 
             # Training & Evaluation
-            save_path = f"model_{model_type}.pkl" if save_models else None
+            save_path = f"models/model_{model_type}.pkl" if save_models else None
             clf, accuracy = train_and_evaluate(
                 csv_file,
                 model_type=model_type,

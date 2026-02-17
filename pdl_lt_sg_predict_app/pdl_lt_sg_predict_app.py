@@ -204,7 +204,9 @@ class TrainingState(BaseState):
             # Model-Namen für Speicherung
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_filename = f"model_{self.selected_model}_{timestamp}.pkl"
-            model_path = Path(__file__).parent.parent / model_filename
+            models_dir = Path(__file__).parent.parent / "models"
+            models_dir.mkdir(exist_ok=True)
+            model_path = models_dir / model_filename
 
             self.training_progress = f"Trainiere {self.selected_model.upper()}-Modell..."
             yield
@@ -238,7 +240,7 @@ class TrainingState(BaseState):
             }
 
             metadata_filename = model_filename.replace(".pkl", "_metadata.json")
-            metadata_path = Path(__file__).parent.parent / metadata_filename
+            metadata_path = models_dir / metadata_filename
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
@@ -269,8 +271,12 @@ class AnalysisState(BaseState):
         yield
 
         try:
-            models_dir = Path(__file__).parent.parent
+            models_dir = Path(__file__).parent.parent / "models"
             models = []
+
+            if not models_dir.exists():
+                self.is_loading = False
+                return
 
             # Finde alle .pkl Dateien
             for pkl_file in models_dir.glob("model_*.pkl"):
@@ -392,10 +398,7 @@ class PredictionState(BaseState):
 
     def load_available_models(self):
         """Lädt Liste verfügbarer Modelle"""
-        # __file__ -> pdl_lt_sg_predict_app/pdl_lt_sg_predict_app.py
-        # parent -> pdl_lt_sg_predict_app/ (package)
-        # parent.parent -> pdl-lt-sg-predict/ (project root, wo Modelle liegen)
-        models_dir = Path(__file__).parent.parent
+        models_dir = Path(__file__).parent.parent / "models"
         model_files = [f.name for f in models_dir.glob("model_*.pkl")]
         self.available_models = sorted(model_files, reverse=True)
 
@@ -414,8 +417,7 @@ class PredictionState(BaseState):
         yield
 
         try:
-            models_dir = Path(__file__).parent.parent
-            model_path = models_dir / self.selected_model_file
+            model_path = Path(__file__).parent.parent / "models" / self.selected_model_file
 
             # Modell laden
             clf = SachgruppenClassifier.load(str(model_path))
@@ -484,8 +486,7 @@ class PredictionState(BaseState):
             self.is_predicting = True
             yield
 
-            models_dir = Path(__file__).parent.parent
-            model_path = models_dir / self.selected_model_file
+            model_path = Path(__file__).parent.parent / "models" / self.selected_model_file
 
             clf = SachgruppenClassifier.load(str(model_path))
 
