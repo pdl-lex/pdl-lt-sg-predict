@@ -888,13 +888,13 @@ def vorhersage_page() -> rx.Component:
 
                     rx.vstack(
                         rx.input(
-                            placeholder="Lemma (z.B. #Kreuz)",
+                            placeholder="Lemma (z.B. 'Waggala')",
                             value=PredictionState.input_lemma,
                             on_change=PredictionState.set_input_lemma,
                             width="100%"
                         ),
                         rx.input(
-                            placeholder="Bedeutung (z.B. Kreuz in Redensart)",
+                            placeholder="Bedeutung (z.B. 'kleines Kind; Kind, das noch wackelig auf den Beinen ist')",
                             value=PredictionState.input_bedeutung,
                             on_change=PredictionState.set_input_bedeutung,
                             width="100%"
