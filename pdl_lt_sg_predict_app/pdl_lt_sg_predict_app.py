@@ -546,8 +546,8 @@ def index() -> rx.Component:
                         rx.vstack(
                             rx.heading("Training" if ENABLE_TRAINING else "Training (deaktiviert)", size="4"),
                             rx.text(
-                                "Trainiere Modelle auf Ihren eigenen Daten" if ENABLE_TRAINING else
-                                "Training ist für schwache VMs deaktiviert. Setzen Sie ENABLE_TRAINING = True im Code.",
+                                "Training neuer Modelle auf eigenen Daten" if ENABLE_TRAINING else
+                                "Training ist für (schwache) VMs deaktiviert. Aktivierung: ENABLE_TRAINING = True in components.py.",
                                 color="var(--gray-11)"
                             ),
                             align_items="start",
@@ -564,9 +564,9 @@ def index() -> rx.Component:
                     rx.hstack(
                         rx.icon("bar_chart_3", size=32, color="var(--jade-11)"),
                         rx.vstack(
-                            rx.heading("Analyse", size="4"),
+                            rx.heading("Modellvergleich", size="4"),
                             rx.text(
-                                "Vergleichen Sie Performance verschiedener trainierter Modelle",
+                                "Vergleichen der Performance und Parameter verschiedener trainierter Modelle",
                                 color="var(--gray-11)"
                             ),
                             align_items="start",
@@ -585,7 +585,7 @@ def index() -> rx.Component:
                         rx.vstack(
                             rx.heading("Vorhersage", size="4"),
                             rx.text(
-                                "Klassifizieren Sie neue Einträge (einzeln oder im Batch)",
+                                "Klassifizierung/Vorhersage für neue Lemmata (einzeln oder im Batch)",
                                 color="var(--gray-11)"
                             ),
                             align_items="start",
@@ -602,22 +602,7 @@ def index() -> rx.Component:
                 width="100%"
             ),
 
-            rx.divider(margin_top="2rem"),
-
-            rx.heading("Verfügbare Modelle", size="5", margin_top="2rem"),
-            rx.vstack(
-                *[
-                    rx.hstack(
-                        rx.badge(code, color_scheme="jade"),
-                        rx.text(name),
-                        spacing="2"
-                    )
-                    for code, name in AVAILABLE_MODELS
-                ],
-                align_items="start",
-                spacing="2"
-            ),
-
+          
             spacing="4",
             width="100%",
             max_width="800px"
