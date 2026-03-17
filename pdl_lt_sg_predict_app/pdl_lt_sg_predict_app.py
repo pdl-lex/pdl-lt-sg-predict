@@ -1007,7 +1007,7 @@ app = rx.App(
     )
 )
 
-app.add_page(index, route="/", title="SG-Predict | Start")
-app.add_page(training_page, route="/training", title="SG-Predict | Training")
-app.add_page(analyse_page, route="/analyse", title="SG-Predict | Analyse")
-app.add_page(vorhersage_page, route="/vorhersage", title="SG-Predict | Vorhersage")
+app.add_page(index, route="/", title="LT Sachgruppen-Vorhersage | Start")
+app.add_page(training_page, route="/training", title="LT Sachgruppen-Vorhersage | Training")
+app.add_page(analyse_page, route="/analyse", title="LT Sachgruppen-Vorhersage | Analyse")
+app.add_page(vorhersage_page, route="/vorhersage", title="LT Sachgruppen-Vorhersage | Vorhersage")
