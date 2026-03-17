@@ -322,7 +322,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.2" },
     { name = "pandas", specifier = ">=3.0.0" },
     { name = "pdl-lt-reflex-aggrid-wrapper", git = "https://github.com/pdl-lex/pdl-lt-reflex-aggrid-wrapper.git" },
-    { name = "reflex", specifier = ">=0.8.26" },
+    { name = "reflex", specifier = "==0.8.28" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "tqdm", specifier = ">=4.67.3" },
@@ -736,7 +736,7 @@ wheels = [
 
 [[package]]
 name = "reflex"
-version = "0.8.26"
+version = "0.8.28"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -757,9 +757,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/7d/b4e6e7de6eae4258bae3dee3e2196eca0f8a59655c471be3e9beb51734bf/reflex-0.8.26.tar.gz", hash = "sha256:27e0571b5422454032674d155a4372fe526670312ddeb9b137bbe1e14d6835d9", size = 572220, upload-time = "2026-01-20T22:54:43.21Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/85/ab69b3da57ced6928afe7d885537ca02d788338a638020adf246f9b8123b/reflex-0.8.28.tar.gz", hash = "sha256:25f1ec69a99258fdbf27552a47700a127d724dfd43259e66459bc6aa210081bd", size = 574441, upload-time = "2026-03-16T23:21:02.826Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/49/0441019df3c113927cdb5d439a975c5c6674183d637186f439e4a25d7d58/reflex-0.8.26-py3-none-any.whl", hash = "sha256:b51bc6c1a5087f52c1567ace3752edcbff4bd12453fee0f90384271d0cc4da48", size = 814949, upload-time = "2026-01-20T22:54:41.292Z" },
+    { url = "https://files.pythonhosted.org/packages/29/53/e5ce1c44e8adcc9fd5e3af9d58aa6d93976408d7a204889f1252c4676925/reflex-0.8.28-py3-none-any.whl", hash = "sha256:dcd6005a3ee25a1e07b3eeaae6b98805e1919d5b01ebf218bc4d1b93d474cbdf", size = 817643, upload-time = "2026-03-16T23:21:01.042Z" },
 ]
 
 [[package]]
