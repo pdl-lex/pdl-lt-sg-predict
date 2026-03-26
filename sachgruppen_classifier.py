@@ -29,9 +29,85 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+
+class StopwordRemover(BaseEstimator, TransformerMixin):
+    """
+    Sklearn-kompatibler Transformer, der Stoppwörter aus DataFrame-Textspalten entfernt.
+
+    Als eigenständige Klasse (nicht als lokale Funktion) ist sie vollständig picklebar
+    und kann daher in sklearn-Pipelines serialisiert werden.
+    """
+
+    def __init__(self, stopwords_path: str | None = None):
+        self.stopwords_path = stopwords_path  # None = Standardpfad (stopwords_de.txt)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        from shap_utils import load_stopwords
+        sw = load_stopwords(self.stopwords_path)
+        result = X.copy()
+        for col in ['lemma', 'bedeutung']:
+            if col in result.columns:
+                result[col] = result[col].apply(
+                    lambda t: " ".join(w for w in str(t).split() if w.lower() not in sw)
+                )
+        return result
+
+
+class PunctuationStripper(BaseEstimator, TransformerMixin):
+    """
+    Sklearn-kompatibler Transformer, der Interpunktion von Wörtern entfernt.
+
+    Normalisiert z.B. "Kind," und "Kind;" zu "Kind", damit Satzzeichen
+    keine verschiedenen TF-IDF-Features erzeugen (relevant bei char_wb-Analyzer).
+    Als eigenständige Klasse vollständig picklebar.
+    """
+
+    import re
+    _pattern = re.compile(r"[^\w\s]", re.UNICODE)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        result = X.copy()
+        for col in ['lemma', 'bedeutung']:
+            if col in result.columns:
+                result[col] = result[col].apply(
+                    lambda t: self._pattern.sub("", str(t))
+                )
+        return result
+
+
+class MinLengthFilter(BaseEstimator, TransformerMixin):
+    """
+    Sklearn-kompatibler Transformer, der Wörter unterhalb einer Mindestlänge entfernt.
+
+    Filtert Einzelbuchstaben und sehr kurze Wörter vor der TF-IDF-Vektorisierung heraus.
+    Als eigenständige Klasse vollständig picklebar.
+    """
+
+    def __init__(self, min_length: int = 1):
+        self.min_length = min_length
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        result = X.copy()
+        for col in ['lemma', 'bedeutung']:
+            if col in result.columns:
+                result[col] = result[col].apply(
+                    lambda t: " ".join(w for w in str(t).split() if len(w) >= self.min_length)
+                )
+        return result
 
 try:
     import xgboost as xgb
@@ -46,18 +122,30 @@ class SachgruppenClassifier:
     Hauptklasse für Sachgruppen-Klassifikation.
     """
     
-    def __init__(self, model_type='svm', random_state=42, use_gpu=False, use_lemma=True):
+    def __init__(self, model_type='svm', random_state=42, use_gpu=False,
+                 use_lemma=True, remove_stopwords=False,
+                 min_word_length: int = 1,
+                 analyzer: str = 'char_wb',
+                 word_ngram_max: int = 1):
         """
         Args:
             model_type: 'svm', 'logistic', 'rf', 'xgboost', oder 'nn' (neural network)
             random_state: Für Reproduzierbarkeit
             use_gpu: GPU-Beschleunigung nutzen (nur für XGBoost)
             use_lemma: Lemma-Spalte als zusätzliche Features verwenden
+            remove_stopwords: Stoppwörter vor TF-IDF aus Text entfernen
+            min_word_length: Minimale Wortlänge (1–5); kürzere Wörter werden vor TF-IDF entfernt
+            analyzer: TF-IDF-Analyzer: 'char_wb' (Zeichen-N-Gramme) oder 'word' (Wort-Ebene)
+            word_ngram_max: Maximales N für word-Analyzer (1=(1,1), 2=(1,2)); ignoriert bei char_wb
         """
         self.model_type = model_type
         self.random_state = random_state
         self.use_gpu = use_gpu
         self.use_lemma = use_lemma
+        self.remove_stopwords = remove_stopwords
+        self.min_word_length = min_word_length
+        self.analyzer = analyzer
+        self.word_ngram_max = word_ngram_max
         self.pipeline = None
         self.classes_ = None
         self.label_encoder = None  # Für XGBoost: String → Integer
@@ -67,18 +155,26 @@ class SachgruppenClassifier:
 
         # Feature Extraction
         # Separate Vectorizer für Lemma und Bedeutung
-        if self.use_lemma:
-            # Lemma: Kürzere n-grams, da Lemmata oft kürzer sind
+        if self.analyzer == 'word':
+            # Wort-Ebene: konfigurierbare N-Gramm-Größe
+            common_word_params = dict(
+                ngram_range=(1, self.word_ngram_max),
+                analyzer='word',
+                min_df=2,
+                sublinear_tf=True,
+            )
+            lemma_vectorizer = TfidfVectorizer(max_features=5000, **common_word_params)
+            bedeutung_vectorizer = TfidfVectorizer(max_features=10000, **common_word_params)
+        else:
+            # Zeichen-N-Gramme (Standard)
             lemma_vectorizer = TfidfVectorizer(
-                ngram_range=(1, 4),  # Längere n-grams für Lemma
+                ngram_range=(1, 4),
                 analyzer='char_wb',
                 max_features=5000,
                 min_df=2,
                 sublinear_tf=True,
                 strip_accents='unicode'
             )
-
-            # Bedeutung: Standard character n-grams
             bedeutung_vectorizer = TfidfVectorizer(
                 ngram_range=(1, 3),
                 analyzer='char_wb',
@@ -88,6 +184,7 @@ class SachgruppenClassifier:
                 strip_accents='unicode'
             )
 
+        if self.use_lemma:
             # ColumnTransformer: Kombiniert Features von beiden Spalten
             vectorizer = ColumnTransformer([
                 ('lemma', lemma_vectorizer, 'lemma'),
@@ -95,14 +192,6 @@ class SachgruppenClassifier:
             ])
         else:
             # Nur Bedeutung (alte Methode, für Vergleich)
-            bedeutung_vectorizer = TfidfVectorizer(
-                ngram_range=(1, 3),
-                analyzer='char_wb',
-                max_features=10000,
-                min_df=2,
-                sublinear_tf=True,
-                strip_accents='unicode'
-            )
             vectorizer = ColumnTransformer([
                 ('bedeutung', bedeutung_vectorizer, 'bedeutung')
             ])
@@ -185,10 +274,15 @@ class SachgruppenClassifier:
             raise ValueError(f"Unbekannter model_type: {self.model_type}")
         
         # Pipeline zusammensetzen
-        self.pipeline = Pipeline([
-            ('vectorizer', vectorizer),
-            ('classifier', classifier)
-        ])
+        # Reihenfolge: Punctuation → MinLength → Stopwords → Vectorizer → Classifier
+        steps = [('punctuation_stripper', PunctuationStripper())]
+        if self.min_word_length > 1:
+            steps.append(('min_length_filter', MinLengthFilter(min_length=self.min_word_length)))
+        if self.remove_stopwords:
+            steps.append(('stopword_remover', StopwordRemover()))
+        steps.append(('vectorizer', vectorizer))
+        steps.append(('classifier', classifier))
+        self.pipeline = Pipeline(steps)
         
         return self.pipeline
     
@@ -344,6 +438,30 @@ class SachgruppenClassifier:
         else:
             raise ValueError(f"{self.model_type} unterstützt keine Wahrscheinlichkeiten")
     
+    def explain(self, X_pred, predicted_label: str, model_path: str = "",
+                filter_stopwords: bool = True) -> dict:
+        """
+        Berechnet wort-level SHAP-Scores für eine Einzelvorhersage.
+
+        Args:
+            X_pred: DataFrame mit 'lemma' und/oder 'bedeutung' Spalten (1 Zeile)
+            predicted_label: Vorhergesagte Sachgruppe als String
+            model_path: Pfad zur Modelldatei für Explainer-Caching
+
+        Returns:
+            {"lemma": [(wort, score), ...], "bedeutung": [(wort, score), ...]}
+            score ist normiert auf [-1, 1]; positiv = stärkt die Vorhersage
+        """
+        try:
+            import shap_utils
+        except ImportError as e:
+            raise ImportError(
+                "shap-Paket nicht installiert. Bitte 'pip install shap' ausführen."
+            ) from e
+        return shap_utils.get_word_shap_scores(
+            self, X_pred, predicted_label, model_path, filter_stopwords=filter_stopwords
+        )
+
     def save(self, filepath):
         """Speichert das trainierte Modell."""
         if self.pipeline is None:
@@ -356,7 +474,11 @@ class SachgruppenClassifier:
                 'classes': self.classes_,
                 'label_encoder': self.label_encoder,  # Für XGBoost
                 'use_gpu': self.use_gpu,
-                'use_lemma': self.use_lemma
+                'use_lemma': self.use_lemma,
+                'remove_stopwords': self.remove_stopwords,
+                'min_word_length': self.min_word_length,
+                'analyzer': self.analyzer,
+                'word_ngram_max': self.word_ngram_max,
             }, f)
 
         print(f"\nModell gespeichert: {filepath}")
@@ -370,7 +492,11 @@ class SachgruppenClassifier:
         instance = cls(
             model_type=data['model_type'],
             use_gpu=data.get('use_gpu', False),
-            use_lemma=data.get('use_lemma', True)  # Default: True für neue Modelle
+            use_lemma=data.get('use_lemma', True),
+            remove_stopwords=data.get('remove_stopwords', False),
+            min_word_length=data.get('min_word_length', 1),
+            analyzer=data.get('analyzer', 'char_wb'),
+            word_ngram_max=data.get('word_ngram_max', 1),
         )
         instance.pipeline = data['pipeline']
         instance.classes_ = data['classes']
@@ -381,7 +507,9 @@ class SachgruppenClassifier:
 
 
 def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
-                       tune=False, save_path=None, use_gpu=False):
+                       tune=False, save_path=None, use_gpu=False,
+                       remove_stopwords=False, min_word_length=1,
+                       analyzer='char_wb', word_ngram_max=1):
     """
     Hauptfunktion zum Trainieren und Evaluieren.
 
@@ -486,7 +614,13 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     print(f"  Test: {len(X_test)} Beispiele")
     
     # Modell erstellen und trainieren
-    clf = SachgruppenClassifier(model_type=model_type, use_gpu=use_gpu)
+    clf = SachgruppenClassifier(
+        model_type=model_type, use_gpu=use_gpu,
+        remove_stopwords=remove_stopwords,
+        min_word_length=min_word_length,
+        analyzer=analyzer,
+        word_ngram_max=word_ngram_max,
+    )
     clf.train(X_train, y_train, tune_hyperparameters=tune)
     
     # Evaluieren

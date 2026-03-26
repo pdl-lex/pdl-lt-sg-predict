@@ -3,6 +3,8 @@ Sachgruppen-Klassifikation Web-App
 Machine Learning Interface für Modelltraining, Analyse und Vorhersage
 """
 
+import asyncio
+import os
 import reflex as rx
 import pandas as pd
 from pathlib import Path
@@ -12,6 +14,9 @@ import time
 from datetime import datetime
 import sys
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Füge Parent-Verzeichnis zum Path hinzu um sachgruppen_classifier zu importieren
 # __file__ -> pdl_lt_sg_predict_app/pdl_lt_sg_predict_app.py
 # parent -> pdl_lt_sg_predict_app/ (package)
@@ -19,6 +24,23 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sachgruppen_classifier import SachgruppenClassifier, train_and_evaluate
+
+# Modelle außerhalb des Projektordners speichern (konfigurierbar via .env)
+_models_dir_env = os.getenv("MODELS_DIR", "")
+MODELS_DIR = Path(_models_dir_env) if _models_dir_env else Path.home() / ".pdl-sg-predict" / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _next_model_filename(model_type: str) -> str:
+    """Gibt den nächsten verfügbaren Dateinamen zurück, z.B. model_svm_003.pkl."""
+    import re
+    pattern = re.compile(rf"model_{re.escape(model_type)}_(\d+)\.pkl", re.IGNORECASE)
+    max_n = 0
+    for f in MODELS_DIR.glob(f"model_{model_type}_*.pkl"):
+        m = pattern.match(f.name)
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return f"model_{model_type}_{max_n + 1:03d}.pkl"
 from pdl_lt_reflex_aggrid_wrapper import ag_grid
 from .components import base_layout, ENABLE_TRAINING
 
@@ -51,6 +73,40 @@ MODEL_DISPLAY_NAMES = {
     "xgboost": "XGBoost",
 }
 
+# Fallback-Trainingszeiten (Sekunden) für ~113 127 Samples, gemessen auf Entwicklungsrechner.
+# Werden durch historische Metadaten überschrieben sobald ein Modell des jeweiligen Typs trainiert wurde.
+_TIME_FALLBACKS: dict[str, float] = {
+    "svm": 120.0,
+    "logistic": 4286.0,
+    "rf": 30.0,
+    "nn": 111.0,
+    "xgboost": 6112.0,
+}
+_TIME_FALLBACK_SAMPLES = 113_127
+
+# ============ SHAP Helpers ============
+
+def _shap_score_to_dict(word: str, score: float) -> dict:
+    """Erzeugt ein serialisierbares Dict mit vorberechneter Badge-Farbe."""
+    color = "jade" if score > 0.1 else ("red" if score < -0.1 else "gray")
+    return {"word": word, "score": round(score, 4), "color": color}
+
+
+def _shap_pairs_to_dicts(pairs: list) -> list[dict]:
+    return [_shap_score_to_dict(w, s) for w, s in pairs]
+
+
+# ============ Model Cache ============
+
+_MODEL_CACHE: dict[str, "SachgruppenClassifier"] = {}
+
+def _get_model(model_path: str) -> "SachgruppenClassifier":
+    """Lädt ein Modell einmalig und hält es im Speicher vor."""
+    if model_path not in _MODEL_CACHE:
+        _MODEL_CACHE[model_path] = SachgruppenClassifier.load(model_path)
+    return _MODEL_CACHE[model_path]
+
+
 # ============ States ============
 
 class BaseState(rx.State):
@@ -80,6 +136,26 @@ class TrainingState(BaseState):
     # Training Config
     selected_model: str = "svm"
     test_size: float = 0.2
+    use_stopword_removal: bool = False
+    min_word_length: int = 1
+    analyzer_mode: str = "char_wb"   # "char_wb" oder "word"
+    word_ngram_max: int = 1          # 1=(1,1), 2=(1,2) — nur bei analyzer_mode="word"
+
+    # Batch-Training Config
+    batch_model_types: list[str] = ["svm"]
+    batch_use_stopwords: list[bool] = [False]   # [False], [True], oder [False, True]
+    batch_min_lengths: list[int] = [1]
+    batch_analyzers: list[str] = ["char_wb"]
+
+    # Historische Trainingszeiten: model_type → Sekunden (skaliert auf aktuelle Sample-Anzahl)
+    time_per_type: dict[str, float] = {}
+
+    # Batch-Training Status
+    batch_is_running: bool = False
+    batch_total: int = 0
+    batch_done: int = 0
+    batch_current_config: str = ""
+    batch_errors: list[str] = []
 
     # Training Status
     is_training: bool = False
@@ -101,12 +177,86 @@ class TrainingState(BaseState):
 
     @rx.var
     def can_train(self) -> bool:
-        return self.has_data and not self.is_training
+        return self.has_data and not self.is_training and not self.batch_is_running
 
     @rx.var
     def test_size_formatted(self) -> str:
         """Formatiert test_size als Prozent-String"""
         return f"{self.test_size * 100:.0f}%"
+
+    @rx.var
+    def min_word_length_formatted(self) -> str:
+        return f"≥ {self.min_word_length} Zeichen"
+
+    @rx.var
+    def word_ngram_max_str(self) -> str:
+        return str(self.word_ngram_max)
+
+    @rx.var
+    def batch_preview_count(self) -> int:
+        """Anzahl Modelle, die beim Batch-Training trainiert werden."""
+        return (
+            len(self.batch_model_types)
+            * len(self.batch_use_stopwords)
+            * len(self.batch_min_lengths)
+            * len(self.batch_analyzers)
+        )
+
+    @rx.var
+    def batch_preview_label(self) -> str:
+        n = (
+            len(self.batch_model_types)
+            * len(self.batch_use_stopwords)
+            * len(self.batch_min_lengths)
+            * len(self.batch_analyzers)
+        )
+        return f"{n} Modelle werden trainiert"
+
+    @rx.var
+    def batch_estimated_time_str(self) -> str:
+        """Geschätzte Gesamtdauer des Batch-Trainings basierend auf historischen Messungen."""
+        if not self.batch_model_types:
+            return ""
+        # Anzahl Konfigurationen je Modelltyp (alle Preprocessing-Kombinationen)
+        configs_per_type = (
+            len(self.batch_use_stopwords)
+            * len(self.batch_min_lengths)
+            * len(self.batch_analyzers)
+        )
+        n_current = max(self.total_samples, 1)
+        total_secs = 0.0
+        for mt in self.batch_model_types:
+            if mt in self.time_per_type and self.time_per_type[mt] > 0:
+                est = self.time_per_type[mt]
+            else:
+                # Fallback: auf aktuelle Sample-Anzahl skalieren
+                fallback = _TIME_FALLBACKS.get(mt, 120.0)
+                est = fallback / _TIME_FALLBACK_SAMPLES * n_current
+            total_secs += est * configs_per_type
+        if total_secs <= 0:
+            return ""
+        t = int(total_secs)
+        h, rem = divmod(t, 3600)
+        m, s = divmod(rem, 60)
+        source = "gemessen" if self.time_per_type else "geschätzt"
+        if h > 0:
+            return f"ca. {h}h {m:02d}min ({source})"
+        elif m > 0:
+            return f"ca. {m}min {s:02d}s ({source})"
+        else:
+            return f"ca. {s}s ({source})"
+
+    @rx.var
+    def batch_progress_pct(self) -> int:
+        if self.batch_total == 0:
+            return 0
+        return int(self.batch_done / self.batch_total * 100)
+
+    @rx.var
+    def batch_progress_label(self) -> str:
+        if self.batch_total == 0:
+            return ""
+        return f"Trainiere {self.batch_done + 1}/{self.batch_total}: {self.batch_current_config}"
 
     async def handle_csv_upload(self, files: list[rx.UploadFile]):
         """Verarbeitet CSV-Upload"""
@@ -154,6 +304,7 @@ class TrainingState(BaseState):
                 self.uploaded_filename = safe_filename
                 self.total_samples = len(df)
                 self.num_classes = df['sachgruppe'].nunique()
+                self._refresh_time_estimates()
 
             except Exception as e:
                 self.upload_error = f"Fehler beim Lesen der CSV: {str(e)}"
@@ -168,6 +319,82 @@ class TrainingState(BaseState):
         """Handler für Slider (erwartet Liste)"""
         if value:
             self.test_size = value[0]
+
+    def set_use_stopword_removal(self, value: bool):
+        self.use_stopword_removal = value
+
+    def _refresh_time_estimates(self):
+        """
+        Liest historische Trainingszeiten aus Metadaten-Dateien und skaliert sie
+        auf die aktuell hochgeladene Datenmenge. Wird nach jedem CSV-Upload aufgerufen.
+        Für jeden Modelltyp wird der aktuellste Eintrag verwendet.
+        """
+        models_dir = MODELS_DIR
+        if not models_dir.exists() or self.total_samples == 0:
+            return
+        # Aktuellste Messung pro Typ suchen (höchster Timestamp gewinnt)
+        best: dict[str, tuple[str, float, int]] = {}  # type → (timestamp, time, samples)
+        for mf in models_dir.glob("*_metadata.json"):
+            try:
+                with open(mf) as f:
+                    m = json.load(f)
+                mt = m.get("model_type", "")
+                t = float(m.get("training_time", 0))
+                n = int(m.get("num_samples", 0))
+                ts = m.get("timestamp", "")
+                if mt and t > 0 and n > 0:
+                    if mt not in best or ts > best[mt][0]:
+                        best[mt] = (ts, t, n)
+            except Exception:
+                pass
+        estimates = {}
+        for mt, (_, t, n) in best.items():
+            estimates[mt] = t / n * self.total_samples
+        self.time_per_type = estimates
+
+    def handle_min_word_length_change(self, value: list[float]):
+        if value:
+            self.min_word_length = int(value[0])
+
+    def handle_analyzer_mode_change(self, value: str):
+        self.analyzer_mode = value
+
+    def handle_word_ngram_max_change(self, value: str):
+        self.word_ngram_max = int(value)
+
+    # ---- Batch-Konfiguration ----
+
+    def toggle_batch_model(self, model_type: str):
+        """Fügt einen Modelltyp zur Batch-Liste hinzu oder entfernt ihn."""
+        if model_type in self.batch_model_types:
+            if len(self.batch_model_types) > 1:
+                self.batch_model_types = [m for m in self.batch_model_types if m != model_type]
+        else:
+            self.batch_model_types = self.batch_model_types + [model_type]
+
+    def toggle_batch_stopwords(self, value: bool):
+        """Schaltet True/False-Wert in batch_use_stopwords an/aus."""
+        if value in self.batch_use_stopwords:
+            if len(self.batch_use_stopwords) > 1:
+                self.batch_use_stopwords = [v for v in self.batch_use_stopwords if v != value]
+        else:
+            self.batch_use_stopwords = self.batch_use_stopwords + [value]
+
+    def toggle_batch_min_length(self, length: int):
+        """Fügt Mindest-Wortlänge zur Batch-Liste hinzu oder entfernt sie."""
+        if length in self.batch_min_lengths:
+            if len(self.batch_min_lengths) > 1:
+                self.batch_min_lengths = [l for l in self.batch_min_lengths if l != length]
+        else:
+            self.batch_min_lengths = sorted(self.batch_min_lengths + [length])
+
+    def toggle_batch_analyzer(self, analyzer: str):
+        """Fügt Analyzer zur Batch-Liste hinzu oder entfernt ihn."""
+        if analyzer in self.batch_analyzers:
+            if len(self.batch_analyzers) > 1:
+                self.batch_analyzers = [a for a in self.batch_analyzers if a != analyzer]
+        else:
+            self.batch_analyzers = self.batch_analyzers + [analyzer]
 
     def handle_model_selection(self, display_name: str):
         """Konvertiert Display-Name zu Model-Type"""
@@ -203,10 +430,8 @@ class TrainingState(BaseState):
 
             # Model-Namen für Speicherung
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            model_filename = f"model_{self.selected_model}_{timestamp}.pkl"
-            models_dir = Path(__file__).parent.parent / "models"
-            models_dir.mkdir(exist_ok=True)
-            model_path = models_dir / model_filename
+            model_filename = _next_model_filename(self.selected_model)
+            model_path = MODELS_DIR / model_filename
 
             self.training_progress = f"Trainiere {self.selected_model.upper()}-Modell..."
             yield
@@ -214,12 +439,30 @@ class TrainingState(BaseState):
             # Training starten
             start_time = time.time()
 
-            clf, accuracy = train_and_evaluate(
-                str(csv_path),
-                model_type=self.selected_model,
-                test_size=self.test_size,
-                tune=False,
-                save_path=str(model_path),
+            # State-Vars vor dem Executor-Aufruf auslesen (Thread-Sicherheit)
+            word_ngram_max = self.word_ngram_max if self.analyzer_mode == "word" else 1
+            _model = self.selected_model
+            _test_size = self.test_size
+            _remove_sw = self.use_stopword_removal
+            _min_len = self.min_word_length
+            _analyzer = self.analyzer_mode
+            _csv = str(csv_path)
+            _mp = str(model_path)
+
+            loop = asyncio.get_running_loop()
+            clf, accuracy = await loop.run_in_executor(
+                None,
+                lambda: train_and_evaluate(
+                    _csv,
+                    model_type=_model,
+                    test_size=_test_size,
+                    tune=False,
+                    save_path=_mp,
+                    remove_stopwords=_remove_sw,
+                    min_word_length=_min_len,
+                    analyzer=_analyzer,
+                    word_ngram_max=word_ngram_max,
+                )
             )
 
             self.training_time = time.time() - start_time
@@ -236,11 +479,16 @@ class TrainingState(BaseState):
                 "timestamp": timestamp,
                 "num_samples": self.total_samples,
                 "num_classes": self.num_classes,
-                "model_file": model_filename
+                "model_file": model_filename,
+                "remove_stopwords": self.use_stopword_removal,
+                "test_size": self.test_size,
+                "min_word_length": self.min_word_length,
+                "analyzer": self.analyzer_mode,
+                "word_ngram_max": word_ngram_max,
             }
 
             metadata_filename = model_filename.replace(".pkl", "_metadata.json")
-            metadata_path = models_dir / metadata_filename
+            metadata_path = MODELS_DIR / metadata_filename
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
@@ -250,6 +498,109 @@ class TrainingState(BaseState):
             traceback.print_exc()
         finally:
             self.is_training = False
+
+    async def start_batch_training(self):
+        """Trainiert alle Kombinationen aus batch_* Konfigurationslisten."""
+        if not self.uploaded_filename or self.is_training or self.batch_is_running:
+            return
+
+        session_path = self._create_session_dir()
+        csv_path = session_path / self.uploaded_filename
+        if not csv_path.exists():
+            self.training_error = "CSV-Datei nicht gefunden"
+            return
+
+        # Kartesisches Produkt aller Konfigurationen
+        configs = [
+            {
+                "model_type": mt,
+                "remove_stopwords": sw,
+                "min_word_length": ml,
+                "analyzer": an,
+                "word_ngram_max": 2 if an == "word-(1,2)" else 1,
+                "analyzer_clean": "word" if an.startswith("word") else "char_wb",
+            }
+            for mt in self.batch_model_types
+            for sw in self.batch_use_stopwords
+            for ml in self.batch_min_lengths
+            for an in self.batch_analyzers
+        ]
+
+        self.batch_total = len(configs)
+        self.batch_done = 0
+        self.batch_is_running = True
+        self.batch_errors = []
+        self.training_error = ""
+        yield
+
+        for cfg in configs:
+            self.batch_current_config = " | ".join([
+                cfg["model_type"].upper(),
+                f"sw={'ja' if cfg['remove_stopwords'] else 'nein'}",
+                f"len≥{cfg['min_word_length']}",
+                cfg["analyzer"],
+            ])
+            yield
+
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                model_filename = _next_model_filename(cfg["model_type"])
+                model_path = MODELS_DIR / model_filename
+
+                # State-Vars vor dem Executor-Aufruf auslesen (Thread-Sicherheit)
+                test_size_val = self.test_size
+                total_samples_val = self.total_samples
+                num_classes_val = self.num_classes
+                csv_path_str = str(csv_path)
+                model_path_str = str(model_path)
+
+                start_time = time.time()
+                loop = asyncio.get_running_loop()
+                clf, accuracy = await loop.run_in_executor(
+                    None,
+                    lambda c=cfg, ts=test_size_val, cp=csv_path_str, mp=model_path_str: train_and_evaluate(
+                        cp,
+                        model_type=c["model_type"],
+                        test_size=ts,
+                        tune=False,
+                        save_path=mp,
+                        remove_stopwords=c["remove_stopwords"],
+                        min_word_length=c["min_word_length"],
+                        analyzer=c["analyzer_clean"],
+                        word_ngram_max=c["word_ngram_max"],
+                    )
+                )
+                training_time = time.time() - start_time
+
+                metadata = {
+                    "model_type": cfg["model_type"],
+                    "model_name": MODEL_DISPLAY_NAMES.get(cfg["model_type"], cfg["model_type"]),
+                    "accuracy": accuracy,
+                    "training_time": training_time,
+                    "timestamp": timestamp,
+                    "num_samples": total_samples_val,
+                    "num_classes": num_classes_val,
+                    "model_file": model_filename,
+                    "remove_stopwords": cfg["remove_stopwords"],
+                    "test_size": test_size_val,
+                    "min_word_length": cfg["min_word_length"],
+                    "analyzer": cfg["analyzer_clean"],
+                    "word_ngram_max": cfg["word_ngram_max"],
+                }
+                metadata_path = MODELS_DIR / model_filename.replace(".pkl", "_metadata.json")
+                with open(metadata_path, "w") as f:
+                    json.dump(metadata, f, indent=2)
+
+            except Exception as e:
+                self.batch_errors = self.batch_errors + [f"{self.batch_current_config}: {e}"]
+                import traceback
+                traceback.print_exc()
+
+            self.batch_done += 1
+            yield
+
+        self.batch_is_running = False
+        self.batch_current_config = ""
 
 
 class AnalysisState(BaseState):
@@ -271,7 +622,7 @@ class AnalysisState(BaseState):
         yield
 
         try:
-            models_dir = Path(__file__).parent.parent / "models"
+            models_dir = MODELS_DIR
             models = []
 
             if not models_dir.exists():
@@ -317,13 +668,32 @@ class AnalysisState(BaseState):
                 except ValueError:
                     pass
 
+                test_size_raw = metadata.get("test_size", None)
+                test_size_str = f"{test_size_raw * 100:.0f}%" if test_size_raw is not None else "–"
+                stopwords_str = "ja" if metadata.get("remove_stopwords", False) else "nein"
+
+                min_len = metadata.get("min_word_length", 1)
+                min_len_str = f"≥ {min_len}" if min_len > 1 else "1 (alle)"
+
+                analyzer_raw = metadata.get("analyzer", "char_wb")
+                ngram_max = metadata.get("word_ngram_max", 1)
+                if analyzer_raw == "word":
+                    analyzer_str = f"word-(1,{ngram_max})"
+                else:
+                    analyzer_str = "char_wb"
+
                 models.append({
+                    "model_file": metadata.get("model_file", pkl_file.name),
                     "model_name": model_name,
                     "accuracy": accuracy,
                     "training_time": training_time,
                     "date": date,
                     "num_samples": metadata.get("num_samples", 0),
                     "num_classes": metadata.get("num_classes", 0),
+                    "test_size": test_size_str,
+                    "stopwords_removed": stopwords_str,
+                    "min_word_len": min_len_str,
+                    "analyzer": analyzer_str,
                 })
 
             # Sortiere nach Datum (neueste zuerst), dd.mm.yy -> yy.mm.dd für korrekte Sortierung
@@ -359,6 +729,14 @@ class PredictionState(BaseState):
     selected_model_file: str = ""
     available_models: list[str] = []
 
+    # SHAP-Erklärung
+    shap_lemma_scores: list[dict] = []     # [{"word": str, "score": float}, ...]
+    shap_bedeutung_scores: list[dict] = []
+    shap_error: str = ""
+    shap_is_computing: bool = False
+    shap_model_is_nn: bool = False         # MLP: SHAP nur auf Anfrage
+    shap_filter_stopwords: bool = True     # Stoppwörter ausblenden (Standard: an)
+
     @rx.var
     def has_model(self) -> bool:
         return bool(self.selected_model_file)
@@ -383,6 +761,16 @@ class PredictionState(BaseState):
             return f"{self.prediction_proba * 100:.2f}%"
         return ""
 
+    @rx.var
+    def shap_top_words(self) -> list[dict]:
+        """Top 10 Wörter nach absolutem SHAP-Einfluss (für Balkendiagramm)"""
+        combined = self.shap_lemma_scores + self.shap_bedeutung_scores
+        return sorted(combined, key=lambda x: abs(x["score"]), reverse=True)[:10]
+
+    @rx.var
+    def has_shap_results(self) -> bool:
+        return bool(self.shap_lemma_scores or self.shap_bedeutung_scores)
+
     # Explicit setters (erforderlich ab Reflex 0.9.0)
     def set_selected_model_file(self, value: str):
         """Setter für selected_model_file"""
@@ -398,7 +786,7 @@ class PredictionState(BaseState):
 
     def load_available_models(self):
         """Lädt Liste verfügbarer Modelle"""
-        models_dir = Path(__file__).parent.parent / "models"
+        models_dir = MODELS_DIR
         model_files = [f.name for f in models_dir.glob("model_*.pkl")]
         self.available_models = sorted(model_files, reverse=True)
 
@@ -414,13 +802,22 @@ class PredictionState(BaseState):
         self.prediction_result = ""
         self.prediction_result_description = ""
         self.prediction_proba = 0.0
+        self.shap_lemma_scores = []
+        self.shap_bedeutung_scores = []
+        self.shap_error = ""
+        self.shap_model_is_nn = False
         yield
 
-        try:
-            model_path = Path(__file__).parent.parent / "models" / self.selected_model_file
+        model_path_str = ""
+        clf = None
+        X_pred = None
 
-            # Modell laden
-            clf = SachgruppenClassifier.load(str(model_path))
+        try:
+            model_path = MODELS_DIR / self.selected_model_file
+            model_path_str = str(model_path)
+
+            # Modell aus Cache laden (einmaliges Laden pro Prozess)
+            clf = _get_model(model_path_str)
 
             # Vorhersage
             X_pred = pd.DataFrame({
@@ -445,6 +842,13 @@ class PredictionState(BaseState):
             self.prediction_result = f"Fehler: {str(e)}"
         finally:
             self.is_predicting = False
+
+        # SHAP-Erklärung berechnen (nur wenn Vorhersage erfolgreich)
+        if clf is not None and X_pred is not None and self.prediction_result and not self.prediction_result.startswith("Fehler"):
+            self.shap_model_is_nn = (clf.model_type == "nn")
+
+            if clf.model_type != "nn":
+                yield from self._run_shap_computation(clf, X_pred, model_path_str)
 
     async def handle_batch_upload(self, files: list[rx.UploadFile]):
         """Batch-CSV Upload"""
@@ -486,9 +890,9 @@ class PredictionState(BaseState):
             self.is_predicting = True
             yield
 
-            model_path = Path(__file__).parent.parent / "models" / self.selected_model_file
+            model_path = MODELS_DIR / self.selected_model_file
 
-            clf = SachgruppenClassifier.load(str(model_path))
+            clf = _get_model(str(model_path))
 
             predictions = clf.predict(df[['lemma', 'bedeutung']])
 
@@ -509,6 +913,65 @@ class PredictionState(BaseState):
             self.batch_upload_error = f"Fehler: {str(e)}"
         finally:
             self.is_predicting = False
+
+    def _run_shap_computation(self, clf, X_pred, model_path_str: str):
+        """Gemeinsame SHAP-Berechnungslogik für predict_single und compute_shap_nn."""
+        self.shap_is_computing = True
+        yield
+        try:
+            shap_result = clf.explain(
+                X_pred, self.prediction_result, model_path_str,
+                filter_stopwords=self.shap_filter_stopwords,
+            )
+            self.shap_lemma_scores = _shap_pairs_to_dicts(shap_result.get("lemma", []))
+            self.shap_bedeutung_scores = _shap_pairs_to_dicts(shap_result.get("bedeutung", []))
+        except Exception as e:
+            self.shap_error = str(e)
+        finally:
+            self.shap_is_computing = False
+
+    def compute_shap_nn(self):
+        """SHAP-Erklärung für Neural-Network-Modell (langsam, manuell ausgelöst)."""
+        if not self.prediction_result or self.prediction_result.startswith("Fehler"):
+            return
+
+        self.shap_lemma_scores = []
+        self.shap_bedeutung_scores = []
+        self.shap_error = ""
+
+        model_path = MODELS_DIR / self.selected_model_file
+        model_path_str = str(model_path)
+        clf = _get_model(model_path_str)
+        X_pred = pd.DataFrame({
+            'lemma': [self.input_lemma],
+            'bedeutung': [self.input_bedeutung]
+        })
+        yield from self._run_shap_computation(clf, X_pred, model_path_str)
+
+    def toggle_shap_stopwords(self):
+        """Stoppwort-Filter umschalten und SHAP neu berechnen."""
+        self.shap_filter_stopwords = not self.shap_filter_stopwords
+
+        if not self.prediction_result or self.prediction_result.startswith("Fehler"):
+            return
+
+        self.shap_lemma_scores = []
+        self.shap_bedeutung_scores = []
+        self.shap_error = ""
+
+        model_path = MODELS_DIR / self.selected_model_file
+        model_path_str = str(model_path)
+        clf = _get_model(model_path_str)
+
+        if clf.model_type == "nn":
+            # MLP nicht automatisch neu berechnen (zu langsam)
+            return
+
+        X_pred = pd.DataFrame({
+            'lemma': [self.input_lemma],
+            'bedeutung': [self.input_bedeutung]
+        })
+        yield from self._run_shap_computation(clf, X_pred, model_path_str)
 
     def download_batch_csv(self):
         """Batch-Ergebnisse als CSV herunterladen"""
@@ -692,47 +1155,352 @@ def training_page() -> rx.Component:
                 rx.vstack(
                     rx.heading("2. Modell & Parameter", size="5"),
 
+                    # Jede Option in einer eigenen Zeile: links Steuerelement, rechts Erklärtext
+                    # Zeile 1: Modell-Typ
                     rx.hstack(
                         rx.vstack(
-                            rx.text("Modell-Typ:", font_weight="bold"),
+                            rx.text("Modell-Typ", weight="bold", size="2"),
                             rx.select(
                                 [name for _, name in AVAILABLE_MODELS],
                                 value=TrainingState.selected_model_display,
-                                on_change=TrainingState.handle_model_selection
+                                on_change=TrainingState.handle_model_selection,
                             ),
                             align_items="start",
-                            spacing="1"
+                            spacing="1",
+                            min_width="220px",
                         ),
+                        rx.text(
+                            "Algorithmus für die Klassifikation. SVM ist ein guter Standard – schnell und genau. "
+                            "XGBoost erreicht oft die höchste Accuracy, braucht aber deutlich länger.",
+                            size="2", color="var(--gray-11)", flex="1",
+                        ),
+                        align_items="center",
+                        spacing="6",
+                        width="100%",
+                    ),
 
+                    rx.divider(),
+
+                    # Zeile 2: Test-Anteil
+                    rx.hstack(
                         rx.vstack(
-                            rx.text("Test-Anteil:", font_weight="bold"),
+                            rx.text("Test-Anteil", weight="bold", size="2"),
                             rx.slider(
                                 default_value=[0.2],
                                 value=[TrainingState.test_size],
                                 min=0.1,
                                 max=0.4,
                                 step=0.05,
-                                on_change=TrainingState.handle_test_size_change
+                                on_change=TrainingState.handle_test_size_change,
+                                width="180px",
                             ),
-                            rx.text(TrainingState.test_size_formatted, color="var(--gray-11)"),
+                            rx.text(TrainingState.test_size_formatted, size="2", color="var(--gray-11)"),
                             align_items="start",
-                            spacing="1"
+                            spacing="1",
+                            min_width="220px",
                         ),
-
-                        spacing="4",
-                        width="100%"
+                        rx.text(
+                            "Anteil der Daten, der für die Evaluation zurückgehalten wird (nicht zum Training genutzt). "
+                            "20% ist ein üblicher Standardwert.",
+                            size="2", color="var(--gray-11)", flex="1",
+                        ),
+                        align_items="center",
+                        spacing="6",
+                        width="100%",
                     ),
 
-                    spacing="3"
+                    rx.divider(),
+
+                    # Zeile 3: Stoppwörter
+                    rx.hstack(
+                        rx.vstack(
+                            rx.text("Stoppwörter entfernen", weight="bold", size="2"),
+                            rx.hstack(
+                                rx.switch(
+                                    checked=TrainingState.use_stopword_removal,
+                                    on_change=TrainingState.set_use_stopword_removal,
+                                    size="2",
+                                ),
+                                rx.text(
+                                    rx.cond(TrainingState.use_stopword_removal, "an", "aus"),
+                                    size="2", color="var(--gray-11)",
+                                ),
+                                align_items="center",
+                                spacing="2",
+                            ),
+                            align_items="start",
+                            spacing="1",
+                            min_width="220px",
+                        ),
+                        rx.text(
+                            "Entfernt häufige Funktionswörter (Artikel, Präpositionen, Hilfsverben) "
+                            "aus stopwords_de.txt vor der TF-IDF-Vektorisierung. "
+                            "Ermöglicht Vergleich mit/ohne Stoppwörter.",
+                            size="2", color="var(--gray-11)", flex="1",
+                        ),
+                        align_items="center",
+                        spacing="6",
+                        width="100%",
+                    ),
+
+                    rx.divider(),
+
+                    # Zeile 4: Min. Wortlänge
+                    rx.hstack(
+                        rx.vstack(
+                            rx.text("Min. Wortlänge", weight="bold", size="2"),
+                            rx.slider(
+                                default_value=[1],
+                                value=[TrainingState.min_word_length],
+                                min=1,
+                                max=5,
+                                step=1,
+                                on_change=TrainingState.handle_min_word_length_change,
+                                width="180px",
+                            ),
+                            rx.text(TrainingState.min_word_length_formatted, size="2", color="var(--gray-11)"),
+                            align_items="start",
+                            spacing="1",
+                            min_width="220px",
+                        ),
+                        rx.text(
+                            "Wörter kürzer als dieser Wert werden vor der Vektorisierung entfernt. "
+                            "Wert 1 bedeutet: alle Wörter bleiben. "
+                            "Ab 2 fallen Einzelbuchstaben weg, ab 3 auch zweistellige Abkürzungen.",
+                            size="2", color="var(--gray-11)", flex="1",
+                        ),
+                        align_items="center",
+                        spacing="6",
+                        width="100%",
+                    ),
+
+                    rx.divider(),
+
+                    # Zeile 5: Analyzer / N-Gramm
+                    rx.hstack(
+                        rx.vstack(
+                            rx.text("Analyzer", weight="bold", size="2"),
+                            rx.select(
+                                ["char_wb", "word"],
+                                value=TrainingState.analyzer_mode,
+                                on_change=TrainingState.handle_analyzer_mode_change,
+                            ),
+                            rx.cond(
+                                TrainingState.analyzer_mode == "word",
+                                rx.hstack(
+                                    rx.text("N-Gramm:", size="2", color="var(--gray-11)"),
+                                    rx.select(
+                                        ["1", "2"],
+                                        value=TrainingState.word_ngram_max_str,
+                                        on_change=TrainingState.handle_word_ngram_max_change,
+                                        size="1",
+                                    ),
+                                    align_items="center",
+                                    spacing="2",
+                                ),
+                                rx.fragment(),
+                            ),
+                            align_items="start",
+                            spacing="2",
+                            min_width="220px",
+                        ),
+                        rx.cond(
+                            TrainingState.analyzer_mode == "word",
+                            rx.text(
+                                "Wort-Ebene: Features sind ganze Wörter statt Zeichenketten. "
+                                "N-Gramm 1 = nur Einzelwörter; "
+                                "N-Gramm 2 = Einzelwörter + Wortpaare (z.B. \"kleines Kind\" als Feature).",
+                                size="2", color="var(--gray-11)", flex="1",
+                            ),
+                            rx.text(
+                                "Zeichen-N-Gramme (char_wb): Features sind Zeichenfolgen innerhalb von Wörtern. "
+                                "Robuster bei Tippfehlern und morphologischen Varianten (Flexion, Komposita).",
+                                size="2", color="var(--gray-11)", flex="1",
+                            ),
+                        ),
+                        align_items="center",
+                        spacing="6",
+                        width="100%",
+                    ),
+
+                    spacing="4",
                 ),
                 padding="1.5rem",
                 width="100%"
             ),
 
+            # Batch-Training
+            rx.card(
+                rx.vstack(
+                    rx.heading("3. Batch-Training (optional)", size="5"),
+                    rx.text(
+                        "Trainiere mehrere Parameterkombinationen in einem Durchlauf. "
+                        "Alle Kombinationen aus den gewählten Optionen werden kreuzweise trainiert.",
+                        color="var(--gray-11)",
+                        size="2",
+                    ),
+
+                    rx.hstack(
+                        # Modelltypen
+                        rx.vstack(
+                            rx.text("Modell-Typen:", weight="bold", size="2"),
+                            *[
+                                rx.hstack(
+                                    rx.checkbox(
+                                        checked=TrainingState.batch_model_types.contains(mt),
+                                        on_change=lambda v, m=mt: TrainingState.toggle_batch_model(m),
+                                        size="1",
+                                    ),
+                                    rx.text(name, size="2"),
+                                    align_items="center",
+                                    spacing="2",
+                                )
+                                for mt, name in AVAILABLE_MODELS
+                            ],
+                            align_items="start",
+                            spacing="1",
+                        ),
+
+                        # Stoppwörter
+                        rx.vstack(
+                            rx.text("Stoppwörter:", weight="bold", size="2"),
+                            rx.hstack(
+                                rx.checkbox(
+                                    checked=TrainingState.batch_use_stopwords.contains(False),
+                                    on_change=lambda v: TrainingState.toggle_batch_stopwords(False),
+                                    size="1",
+                                ),
+                                rx.text("nicht entfernen", size="2"),
+                                align_items="center",
+                                spacing="2",
+                            ),
+                            rx.hstack(
+                                rx.checkbox(
+                                    checked=TrainingState.batch_use_stopwords.contains(True),
+                                    on_change=lambda v: TrainingState.toggle_batch_stopwords(True),
+                                    size="1",
+                                ),
+                                rx.text("entfernen", size="2"),
+                                align_items="center",
+                                spacing="2",
+                            ),
+                            align_items="start",
+                            spacing="1",
+                        ),
+
+                        # Min. Wortlänge
+                        rx.vstack(
+                            rx.text("Min. Wortlänge:", weight="bold", size="2"),
+                            *[
+                                rx.hstack(
+                                    rx.checkbox(
+                                        checked=TrainingState.batch_min_lengths.contains(length),
+                                        on_change=lambda v, l=length: TrainingState.toggle_batch_min_length(l),
+                                        size="1",
+                                    ),
+                                    rx.text(f"≥ {length}", size="2"),
+                                    align_items="center",
+                                    spacing="2",
+                                )
+                                for length in [1, 2, 3]
+                            ],
+                            align_items="start",
+                            spacing="1",
+                        ),
+
+                        # Analyzer
+                        rx.vstack(
+                            rx.text("Analyzer:", weight="bold", size="2"),
+                            *[
+                                rx.hstack(
+                                    rx.checkbox(
+                                        checked=TrainingState.batch_analyzers.contains(an),
+                                        on_change=lambda v, a=an: TrainingState.toggle_batch_analyzer(a),
+                                        size="1",
+                                    ),
+                                    rx.text(an, size="2"),
+                                    align_items="center",
+                                    spacing="2",
+                                )
+                                for an in ["char_wb", "word-(1,1)", "word-(1,2)"]
+                            ],
+                            align_items="start",
+                            spacing="1",
+                        ),
+
+                        spacing="6",
+                        align_items="start",
+                        flex_wrap="wrap",
+                    ),
+
+                    rx.hstack(
+                        rx.vstack(
+                            rx.text(
+                                TrainingState.batch_preview_label,
+                                size="2",
+                                color="var(--jade-11)",
+                                weight="bold",
+                            ),
+                            rx.cond(
+                                TrainingState.batch_estimated_time_str,
+                                rx.text(
+                                    TrainingState.batch_estimated_time_str,
+                                    size="1",
+                                    color="var(--gray-10)",
+                                ),
+                            ),
+                            spacing="1",
+                            align_items="start",
+                        ),
+                        rx.button(
+                            "Batch Training starten",
+                            on_click=TrainingState.start_batch_training,
+                            disabled=~TrainingState.can_train | TrainingState.batch_is_running,
+                            loading=TrainingState.batch_is_running,
+                            color_scheme="jade",
+                            variant="soft",
+                        ),
+                        align_items="center",
+                        spacing="4",
+                    ),
+
+                    # Batch-Fortschritt
+                    rx.cond(
+                        TrainingState.batch_is_running,
+                        rx.vstack(
+                            rx.text(TrainingState.batch_progress_label, size="2"),
+                            rx.progress(value=TrainingState.batch_progress_pct),
+                            spacing="2",
+                        ),
+                    ),
+
+                    # Batch-Fehler
+                    rx.cond(
+                        TrainingState.batch_errors,
+                        rx.callout(
+                            rx.vstack(
+                                rx.text("Fehler bei einzelnen Konfigurationen:", weight="bold"),
+                                rx.foreach(
+                                    TrainingState.batch_errors,
+                                    lambda e: rx.text(e, size="1"),
+                                ),
+                                spacing="1",
+                            ),
+                            icon="triangle_alert",
+                            color_scheme="amber",
+                        ),
+                    ),
+
+                    spacing="3",
+                ),
+                padding="1.5rem",
+                width="100%",
+            ),
+
             # Start Training
             rx.card(
                 rx.vstack(
-                    rx.heading("3. Training starten", size="5"),
+                    rx.heading("4. Einzeltraining starten", size="5"),
 
                     rx.button(
                         "Modell trainieren",
@@ -790,12 +1558,17 @@ def training_page() -> rx.Component:
 def analyse_page() -> rx.Component:
     """Analyse-Seite"""
     models_column_defs = [
+        ag_grid.column_def(field="model_file", header_name="Datei", sortable=True, filter=True),
         ag_grid.column_def(field="model_name", header_name="Model", sortable=True, filter=True),
         ag_grid.column_def(field="accuracy", header_name="Accuracy", sortable=True, filter=True),
         ag_grid.column_def(field="training_time", header_name="Training Time", sortable=True, filter=True),
         ag_grid.column_def(field="date", header_name="Date", sortable=True, filter=True),
         ag_grid.column_def(field="num_samples", header_name="Samples", sortable=True, filter=True),
         ag_grid.column_def(field="num_classes", header_name="Classes", sortable=True, filter=True),
+        ag_grid.column_def(field="test_size", header_name="Test-Split", sortable=True, filter=True),
+        ag_grid.column_def(field="stopwords_removed", header_name="Stopwords entf.", sortable=True, filter=True),
+        ag_grid.column_def(field="min_word_len", header_name="Min. Wortlänge", sortable=True, filter=True),
+        ag_grid.column_def(field="analyzer", header_name="Analyzer", sortable=True, filter=True),
     ]
 
     return base_layout(
@@ -835,6 +1608,152 @@ def analyse_page() -> rx.Component:
             width="100%",
             max_width="1200px"
         )
+    )
+
+
+def shap_word_badge(word_data: dict) -> rx.Component:
+    """Badge-Komponente für ein einzelnes Wort mit farbcodiertem SHAP-Einfluss.
+    Die Farbe ('jade'/'red'/'gray') wird bereits im State berechnet.
+    """
+    return rx.badge(word_data["word"], color_scheme=word_data["color"], variant="soft")
+
+
+def shap_card() -> rx.Component:
+    """SHAP-Erklärungskarte, die nach einer Vorhersage angezeigt wird."""
+    return rx.vstack(
+        # Ladeindikator
+        rx.cond(
+            PredictionState.shap_is_computing,
+            rx.callout(
+                "SHAP-Erklärung wird berechnet...",
+                icon="loader",
+                color_scheme="gray",
+            ),
+        ),
+
+        # MLP: manueller Trigger-Button
+        rx.cond(
+            PredictionState.shap_model_is_nn & ~PredictionState.shap_is_computing & ~PredictionState.has_shap_results,
+            rx.button(
+                "Erklärung anzeigen (Neural Network – dauert ~30–60 Sek.)",
+                on_click=PredictionState.compute_shap_nn,
+                color_scheme="amber",
+                variant="soft",
+            ),
+        ),
+
+        # Fehleranzeige
+        rx.cond(
+            PredictionState.shap_error,
+            rx.callout(
+                rx.hstack(
+                    rx.text("SHAP-Fehler: ", weight="bold"),
+                    rx.text(PredictionState.shap_error),
+                    spacing="1",
+                ),
+                icon="triangle_alert",
+                color_scheme="red",
+            ),
+        ),
+
+        # Hauptkarte mit Ergebnissen
+        rx.cond(
+            PredictionState.has_shap_results,
+            rx.card(
+                rx.vstack(
+                    rx.hstack(
+                        rx.hstack(
+                            rx.icon("sparkle", size=18, color="var(--jade-11)"),
+                            rx.heading("Vorhersage-Erklärung (SHAP)", size="4"),
+                            align_items="center",
+                            spacing="2",
+                        ),
+                        rx.spacer(),
+                        rx.hstack(
+                            rx.switch(
+                                checked=PredictionState.shap_filter_stopwords,
+                                on_change=PredictionState.toggle_shap_stopwords,
+                                size="1",
+                            ),
+                            rx.text("Stoppwörter ausblenden", size="2", color="var(--gray-11)"),
+                            align_items="center",
+                            spacing="2",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.text(
+                        "Grün = unterstützt die Vorhersage  |  Rot = widerspricht der Vorhersage  |  Grau = neutral",
+                        size="2",
+                        color="var(--gray-10)",
+                    ),
+
+                    # Lemma-Wörter
+                    rx.cond(
+                        PredictionState.shap_lemma_scores,
+                        rx.vstack(
+                            rx.text("Lemma:", weight="bold", size="2"),
+                            rx.hstack(
+                                rx.foreach(PredictionState.shap_lemma_scores, shap_word_badge),
+                                flex_wrap="wrap",
+                                gap="2",
+                            ),
+                            align_items="start",
+                            spacing="1",
+                        ),
+                    ),
+
+                    # Bedeutung-Wörter
+                    rx.cond(
+                        PredictionState.shap_bedeutung_scores,
+                        rx.vstack(
+                            rx.text("Bedeutung:", weight="bold", size="2"),
+                            rx.hstack(
+                                rx.foreach(PredictionState.shap_bedeutung_scores, shap_word_badge),
+                                flex_wrap="wrap",
+                                gap="2",
+                            ),
+                            align_items="start",
+                            spacing="1",
+                        ),
+                    ),
+
+                    # Balkendiagramm: Top 10 Wörter
+                    rx.cond(
+                        PredictionState.shap_top_words,
+                        rx.vstack(
+                            rx.text("Top-Wörter nach Einfluss:", weight="bold", size="2"),
+                            rx.recharts.responsive_container(
+                                rx.recharts.bar_chart(
+                                    rx.recharts.bar(
+                                        data_key="score",
+                                        fill="#30a46c",  # Jade-Grün als Hex
+                                    ),
+                                    rx.recharts.x_axis(data_key="word"),
+                                    rx.recharts.y_axis(),
+                                    rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                                    rx.recharts.reference_line(y=0, stroke="#888"),
+                                    data=PredictionState.shap_top_words,
+                                ),
+                                width="100%",
+                                height=220,
+                            ),
+                            align_items="start",
+                            spacing="1",
+                            width="100%",
+                        ),
+                    ),
+
+                    spacing="4",
+                    align_items="start",
+                ),
+                padding="1.5rem",
+                width="100%",
+            ),
+        ),
+
+        width="100%",
+        spacing="3",
     )
 
 
@@ -910,6 +1829,12 @@ def vorhersage_page() -> rx.Component:
                             icon="sparkles",
                             color_scheme="jade"
                         )
+                    ),
+
+                    # SHAP-Erklärung
+                    rx.cond(
+                        PredictionState.prediction_result,
+                        shap_card(),
                     ),
 
                     spacing="3"
