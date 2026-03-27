@@ -41,7 +41,7 @@ class AnalysisState(BaseState):
                 self.is_loading = False
                 return
 
-            for pkl_file in models_dir.glob("model_*.pkl"):
+            for pkl_file in models_dir.glob("*.pkl"):
                 metadata_file = models_dir / pkl_file.name.replace(".pkl", "_metadata.json")
 
                 if metadata_file.exists():
