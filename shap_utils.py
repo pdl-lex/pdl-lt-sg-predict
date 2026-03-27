@@ -1,29 +1,32 @@
 """
-SHAP-basierte Erklärung für SachgruppenClassifier.
+SHAP-based explanation for SachgruppenClassifier.
 
-Aggregiert Char-N-Gram SHAP-Werte auf Wort-Ebene, damit der Nutzer sehen kann,
-welche Wörter des Inputs die Vorhersage wie beeinflusst haben.
+Aggregates char-n-gram SHAP values to word level so the user can see
+which input words influenced the prediction and in which direction.
 """
 
+import re
 import unicodedata
 import numpy as np
 from pathlib import Path
 from typing import Any
 
-# Modul-level Explainer-Cache: keyed by model_path (oder id(clf) als Fallback)
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+# Module-level explainer cache: keyed by model_path (or id(clf) as fallback)
 _EXPLAINER_CACHE: dict[str, Any] = {}
 
-# Modul-level Stopwort-Cache
+# Module-level stopwords cache
 _STOPWORDS_CACHE: frozenset | None = None
 _STOPWORDS_PATH = Path(__file__).parent / "stopwords_de.txt"
 
 
 def load_stopwords(path: str | Path | None = None) -> frozenset[str]:
     """
-    Lädt Stoppwörter aus Datei (case-insensitive).
+    Load stopwords from file (case-insensitive).
 
-    Format: ein Wort pro Zeile, Zeilen mit # werden ignoriert.
-    Fallback auf leeres Set wenn Datei nicht gefunden.
+    Format: one word per line; lines starting with # are ignored.
+    Falls back to empty set if file not found.
     """
     global _STOPWORDS_CACHE
     if _STOPWORDS_CACHE is not None and path is None:
@@ -45,7 +48,7 @@ def load_stopwords(path: str | Path | None = None) -> frozenset[str]:
 
 
 def strip_accents_unicode(s: str) -> str:
-    """Reproduziert scikit-learns strip_accents='unicode' Logik."""
+    """Reproduces scikit-learn's strip_accents='unicode' logic."""
     return "".join(
         c for c in unicodedata.normalize("NFD", s)
         if unicodedata.category(c) != "Mn"
@@ -54,13 +57,12 @@ def strip_accents_unicode(s: str) -> str:
 
 def char_wb_ngrams(word: str, min_n: int, max_n: int) -> set[str]:
     """
-    Reproduziert scikit-learns char_wb Tokenisierung exakt.
+    Reproduces scikit-learn's char_wb tokenization exactly.
 
-    char_wb: Wort wird mit Leerzeichen gepaddet, dann werden N-Gramme extrahiert.
-    Beispiel: "Kind" → " Kind " → {" K", "Ki", "in", "nd", "d ", " Ki", ...}
+    char_wb: word is padded with spaces, then n-grams are extracted.
+    Example: "Kind" → " Kind " → {" K", "Ki", "in", "nd", "d ", " Ki", ...}
     """
-    processed = strip_accents_unicode(word)
-    padded = " " + processed + " "
+    padded = " " + word + " "
     ngrams = set()
     for n in range(min_n, max_n + 1):
         for i in range(len(padded) - n + 1):
@@ -75,14 +77,14 @@ def _aggregate_to_words_word_level(
     stopwords: frozenset[str] = frozenset(),
 ) -> list[tuple[str, float]]:
     """
-    Aggregiert word-level TF-IDF SHAP-Werte auf Wort-Ebene.
+    Aggregate word-level TF-IDF SHAP values to word level.
 
-    Für Unigrams: SHAP-Wert des Worts direkt.
-    Für Bigrams (ngram_range=(1,2)): SHAP-Wert aller Bigrams, die das Wort enthalten,
-    wird zum Score des Worts addiert.
+    For unigrams: SHAP value of the word directly.
+    For bigrams (ngram_range=(1,2)): SHAP values of all bigrams containing
+    the word are added to the word's score.
 
     Returns:
-        Liste von (originalwort, raw_score) Paaren (noch NICHT normalisiert)
+        List of (original_word, raw_score) pairs (NOT yet normalized)
     """
     feature_names = vectorizer.get_feature_names_out()
     feature_index = {name: idx for idx, name in enumerate(feature_names)}
@@ -91,15 +93,19 @@ def _aggregate_to_words_word_level(
     if not original_words:
         return []
 
-    # Normalisierte Version für Feature-Lookup
-    normalized_words = [strip_accents_unicode(w.lower()) for w in original_words]
+    # Lowercase for feature lookup
+    normalized_words = [w.lower() for w in original_words]
 
     result = []
     for i, (orig_word, norm_word) in enumerate(zip(original_words, normalized_words)):
-        if norm_word in stopwords:
+        clean_orig = _PUNCT_RE.sub("", orig_word)
+        clean_norm = _PUNCT_RE.sub("", norm_word)
+        if not clean_norm:
             continue
-        # Unigram + angrenzende Bigrams
-        candidates = [norm_word]
+        if clean_norm in stopwords:
+            continue
+        # Unigram + adjacent bigrams
+        candidates = [clean_norm]
         if i > 0:
             candidates.append(f"{normalized_words[i - 1]} {norm_word}")
         if i < len(normalized_words) - 1:
@@ -109,7 +115,7 @@ def _aggregate_to_words_word_level(
             for c in candidates
             if c in feature_index
         ]
-        result.append((orig_word, sum(scores)))
+        result.append((clean_orig, sum(scores)))
 
     return result
 
@@ -121,20 +127,19 @@ def _aggregate_to_words(
     stopwords: frozenset[str] = frozenset(),
 ) -> list[tuple[str, float]]:
     """
-    Aggregiert char-n-gram SHAP-Werte auf Wort-Ebene.
+    Aggregate char-n-gram SHAP values to word level.
 
-    Für jedes Wort: Summiere die SHAP-Werte aller N-Gramme, die aus diesem Wort
-    stammen. Summe statt Mittelwert, damit längere Inhaltswörter (mehr N-Gramme,
-    mehr spezifisches Signal) stärker gewichtet werden als kurze Stoppwörter.
+    For each word: sum the SHAP values of all n-grams originating from that word.
+    Sum instead of mean so that longer content words (more n-grams, more specific
+    signal) are weighted more strongly than short stopwords.
 
-    Stoppwörter werden vollständig übersprungen wenn `stopwords` nicht leer ist.
+    Stopwords are skipped entirely when `stopwords` is non-empty.
 
-    Hinweis: Normalisierung erfolgt NICHT hier, sondern global über alle Felder
-    zusammen in get_word_shap_scores(), damit Lemma- und Bedeutungs-Scores
-    vergleichbar bleiben.
+    Note: normalization is NOT done here but globally across all fields in
+    get_word_shap_scores(), so lemma and bedeutung scores remain comparable.
 
     Returns:
-        Liste von (wort, raw_score) Paaren (noch NICHT normalisiert)
+        List of (word, raw_score) pairs (NOT yet normalized)
     """
     min_n, max_n = vectorizer.ngram_range
     feature_names = vectorizer.get_feature_names_out()
@@ -146,33 +151,36 @@ def _aggregate_to_words(
 
     result = []
     for word in words:
-        if word.lower() in stopwords:
-            continue  # Stoppwort überspringen
-        ngrams = char_wb_ngrams(word, min_n, max_n)
+        clean_word = _PUNCT_RE.sub("", word)
+        if not clean_word:
+            continue
+        if clean_word.lower() in stopwords:
+            continue  # skip stopword
+        ngrams = char_wb_ngrams(clean_word, min_n, max_n)
         scores = [
             float(shap_vals_slice[feature_index[ng]])
             for ng in ngrams
             if ng in feature_index
         ]
-        # Summe: längere, spezifischere Wörter akkumulieren mehr Signal
-        result.append((word, sum(scores)))
+        # Sum: longer, more specific words accumulate more signal
+        result.append((clean_word, sum(scores)))
 
     return result
 
 
 def _build_explainer(model_type: str, classifier, X_transformed):
     """
-    Erstellt den passenden SHAP-Explainer für den Modelltyp.
+    Create the appropriate SHAP explainer for the model type.
 
-    - SVM / Logistic: LinearExplainer (schnell, exakt)
-    - RF / XGBoost: TreeExplainer (schnell, exakt)
-    - NN (MLP): PermutationExplainer (langsam, approximiert)
+    - SVM / Logistic: LinearExplainer (fast, exact)
+    - RF / XGBoost: TreeExplainer (fast, exact)
+    - NN (MLP): PermutationExplainer (slow, approximate)
     """
     import shap
 
     if model_type in ("svm", "logistic"):
-        # Null-Vektor als Hintergrund: SHAP-Wert = Koeffizient × Feature-Wert
-        # (= Abweichung vom "kein Feature vorhanden"-Baseline)
+        # Zero vector as background: SHAP value = coefficient × feature value
+        # (= deviation from "no feature present" baseline)
         import scipy.sparse as sp
         background = sp.csr_matrix((1, X_transformed.shape[1]))
         masker = shap.maskers.Independent(background, max_samples=1)
@@ -182,9 +190,9 @@ def _build_explainer(model_type: str, classifier, X_transformed):
     elif model_type in ("rf", "xgboost"):
         return shap.TreeExplainer(classifier)
     elif model_type == "nn":
-        # PermutationExplainer: Null-Vektor als dichtes Hintergrund-Array.
-        # Sparse-Matrizen führen zu Shape-Fehlern weil SHAP intern squeeze() aufruft
-        # (Background (1,N) → (N,)) und beim Aufruf dann (1,N) erwartet.
+        # PermutationExplainer: zero vector as dense background array.
+        # Sparse matrices cause shape errors because SHAP internally calls squeeze()
+        # (background (1,N) → (N,)) but then expects (1,N) on invocation.
         n_features = X_transformed.shape[1]
         background = np.zeros((1, n_features))
         return shap.PermutationExplainer(
@@ -193,7 +201,7 @@ def _build_explainer(model_type: str, classifier, X_transformed):
             max_evals=2 * n_features + 1,
         )
     else:
-        raise ValueError(f"Kein SHAP-Explainer für Modelltyp '{model_type}' bekannt.")
+        raise ValueError(f"No SHAP explainer known for model type '{model_type}'.")
 
 
 def get_word_shap_scores(
@@ -204,40 +212,41 @@ def get_word_shap_scores(
     filter_stopwords: bool = True,
 ) -> dict:
     """
-    Berechnet wort-level SHAP-Scores für eine einzelne Vorhersage.
+    Compute word-level SHAP scores for a single prediction.
 
     Args:
-        clf: SachgruppenClassifier-Instanz (geladen)
-        X_pred_df: DataFrame mit 'lemma' und/oder 'bedeutung' Spalten (1 Zeile)
-        predicted_label: Vorhergesagte Sachgruppe als String (z.B. "6000")
-        model_path: Pfad zur Modelldatei, für Explainer-Caching
-        filter_stopwords: Wenn True, werden Stoppwörter aus stopwords_de.txt
-                          aus der Anzeige herausgefiltert
+        clf: SachgruppenClassifier instance (loaded)
+        X_pred_df: DataFrame with 'lemma' and/or 'bedeutung' columns (1 row)
+        predicted_label: Predicted Sachgruppe as string (e.g. "6000")
+        model_path: Path to model file for explainer caching
+        filter_stopwords: If True, stopwords from stopwords_de.txt are hidden
 
     Returns:
-        {"lemma": [(wort, score), ...], "bedeutung": [(wort, score), ...]}
-        score ist normiert auf [-1, 1]; positiv = stärkt die Vorhersage
+        {"lemma": [(word, score), ...], "bedeutung": [(word, score), ...]}
+        score normalized to [-1, 1]; positive = supports the prediction
     """
     import shap
 
-    # Stoppwörter laden (aus Cache oder Datei)
+    # Load stopwords (from cache or file)
     stopwords = load_stopwords() if filter_stopwords else frozenset()
 
-    # Pipeline-Schritte extrahieren
-    # Wenn Stoppwort-Removal in Pipeline enthalten: vectorizer ist nicht der erste Schritt
+    # Extract pipeline steps
     named_steps = clf.pipeline.named_steps
+    if "svd" in named_steps:
+        raise ValueError(
+            "SHAP explanations are not available when TruncatedSVD is enabled (use_svd=True)."
+        )
     vectorizer_step = named_steps["vectorizer"]
     classifier_step = named_steps["classifier"]
 
-    # Eingabe in Feature-Raum transformieren (alle Schritte bis zum Classifier)
-    # Preprocessing-Schritte in Pipeline-Reihenfolge anwenden
+    # Transform input to feature space (all steps before the classifier)
     X_preprocessed = X_pred_df
-    for step_name in ("min_length_filter", "stopword_remover"):
+    for step_name in ("punctuation_stripper", "min_length_filter", "stopword_remover"):
         if step_name in named_steps:
             X_preprocessed = named_steps[step_name].transform(X_preprocessed)
     X_transformed = vectorizer_step.transform(X_preprocessed)
 
-    # Explainer aus Cache laden oder neu erstellen
+    # Load explainer from cache or build a new one
     cache_key = str(model_path) if model_path else str(id(clf))
     if cache_key not in _EXPLAINER_CACHE:
         _EXPLAINER_CACHE[cache_key] = _build_explainer(
@@ -245,34 +254,34 @@ def get_word_shap_scores(
         )
     explainer = _EXPLAINER_CACHE[cache_key]
 
-    # SHAP-Werte berechnen
-    # PermutationExplainer (NN) erwartet dichtes Array – sparse → dense konvertieren
-    X_for_shap = X_transformed.toarray() if (
-        clf.model_type == "nn" and hasattr(X_transformed, "toarray")
-    ) else X_transformed
+    # Compute SHAP values
+    # NN and RF/XGBoost need a dense float array; SVM/Logistic can use sparse
+    if clf.model_type in ("nn", "rf", "xgboost") and hasattr(X_transformed, "toarray"):
+        X_for_shap = X_transformed.toarray().astype(float)
+    else:
+        X_for_shap = X_transformed
     shap_explanation = explainer(X_for_shap)
-    shap_vals = shap_explanation.values  # (1, n_features) oder (1, n_features, n_classes)
+    shap_vals = shap_explanation.values  # (1, n_features) or (1, n_features, n_classes)
 
-    # Klassen-Index für die vorhergesagte Klasse ermitteln
+    # Determine class index for the predicted class
     if clf.model_type in ("xgboost", "nn") and clf.label_encoder is not None:
-        # XGBoost/NN nutzen Integer-Labels; classes_ = [0, 1, ..., n-1]
+        # XGBoost/NN use integer labels; classes_ = [0, 1, ..., n-1]
         pred_int = clf.label_encoder.transform([predicted_label])[0]
         pred_class_idx = int(pred_int)
     else:
-        # SVM/Logistic: classes_ enthält die Original-String-Labels
+        # SVM/Logistic: classes_ contains original string labels
         classes_list = list(classifier_step.classes_)
         pred_class_idx = classes_list.index(predicted_label)
 
-    # SHAP-Werte für die vorhergesagte Klasse extrahieren
+    # Extract SHAP values for the predicted class
     if shap_vals.ndim == 3:
         # Multiclass: (1, n_features, n_classes) → (n_features,)
         flat_shap = np.array(shap_vals[0, :, pred_class_idx])
     else:
-        # Binary oder lineare Ausgabe: (1, n_features) → (n_features,)
+        # Binary or linear output: (1, n_features) → (n_features,)
         flat_shap = np.array(shap_vals[0, :])
 
-    # SHAP-Werte aufteilen: jeder Transformer (lemma, bedeutung) hat einen eigenen Slice
-    # Originaltext für Stoppwort-Matching (nicht den vorverarbeiteten!)
+    # Split SHAP values: each transformer (lemma, bedeutung) has its own slice
     result = {}
     offset = 0
     for name, transformer, col in vectorizer_step.transformers_:
@@ -281,21 +290,42 @@ def get_word_shap_scores(
         n_features = len(transformer.get_feature_names_out())
         slice_vals = flat_shap[offset:offset + n_features]
 
-        # Originaltext (vor Stoppwort-Removal) für konsistente Wort-Anzeige
-        text = str(X_pred_df[col].iloc[0]) if col in X_pred_df.columns else ""
-        # Dispatch: word-level oder char-level Aggregation
+        # Preprocessed text (after punctuation stripping) for consistent word display
+        text = str(X_preprocessed[col].iloc[0]) if col in X_preprocessed.columns else ""
+        # Dispatch: word-level or char-level aggregation
         if getattr(transformer, "analyzer", None) == "word":
             result[name] = _aggregate_to_words_word_level(text, transformer, slice_vals, stopwords)
         else:
             result[name] = _aggregate_to_words(text, transformer, slice_vals, stopwords)
         offset += n_features
 
-    # Sicherstellen, dass beide Schlüssel immer vorhanden sind
+    # Merge the word-level bedeutung branch into the main key.
+    # char_wb and word process the same text → add scores positionally,
+    # do not concatenate (which would show each word twice).
+    if "bedeutung_word" in result:
+        char_pairs = result.get("bedeutung", [])
+        word_pairs = result.pop("bedeutung_word")
+        if len(char_pairs) == len(word_pairs):
+            result["bedeutung"] = [
+                (w, sc + sw)
+                for (w, sc), (_, sw) in zip(char_pairs, word_pairs)
+            ]
+        else:
+            # Lengths differ (should not happen): merge by word text
+            from collections import defaultdict
+            scores_by_word: dict[str, list[float]] = defaultdict(list)
+            order: list[str] = []
+            for w, s in char_pairs + word_pairs:
+                if w not in scores_by_word:
+                    order.append(w)
+                scores_by_word[w].append(s)
+            result["bedeutung"] = [(w, sum(scores_by_word[w])) for w in order]
+    # Ensure both keys are always present
     result.setdefault("lemma", [])
     result.setdefault("bedeutung", [])
 
-    # Globale Normalisierung auf [-1, 1] über BEIDE Felder zusammen,
-    # damit Lemma- und Bedeutungs-Scores vergleichbar bleiben.
+    # Global normalization to [-1, 1] across BOTH fields so lemma and
+    # bedeutung scores remain comparable.
     all_scores = [s for pairs in result.values() for _, s in pairs]
     max_abs = max(abs(s) for s in all_scores) if all_scores else 1.0
     if max_abs == 0:

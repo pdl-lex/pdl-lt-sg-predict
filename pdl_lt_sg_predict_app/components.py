@@ -1,8 +1,13 @@
 import os
+import json
 import reflex as rx
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_models_dir_env = os.getenv("MODELS_DIR", "")
+_MODELS_DIR = Path(_models_dir_env) if _models_dir_env else Path.home() / ".pdl-sg-predict" / "models"
 
 ENABLE_TRAINING = os.getenv("ENABLE_TRAINING", "True").strip().lower() in ("1", "true", "yes")
 
@@ -14,16 +19,52 @@ AVAILABLE_MODELS = [
     ("xgboost", "XGBoost"),
 ]
 
-# ============ Design-Konstanten ============
+# ============ Design Constants ============
 
 MAX_PAGE_WIDTH = "100%"
-SIDEBAR_WIDTH = ["100%", "100%", "250px"]   # mobile, tablet, desktop
+SIDEBAR_WIDTH = ["100%", "100%", "250px"]   # mobile, tablet, desktop (responsive)
 PANEL_PADDING = "20px"
 PANEL_RADIUS = "5px"
 PANEL_BORDER = "1px solid var(--gray-8)"
 PANEL_BG = rx.color("sand", 1, False)
 PAGE_BG = "var(--jade-2)"
 HEADING_COLOR = "var(--jade-12)"
+
+
+# ============ Best Model State ============
+
+class BestModelState(rx.State):
+    """Tracks the best model (by accuracy) and CSV info for the sidebar."""
+
+    best_model_name: str = ""
+    best_model_accuracy: str = ""
+
+    csv_filename: str = ""
+    csv_num_samples: int = 0
+    csv_num_classes: int = 0
+
+    def set_csv_info(self, filename: str, num_samples: int, num_classes: int):
+        self.csv_filename = filename
+        self.csv_num_samples = num_samples
+        self.csv_num_classes = num_classes
+
+    def load_best_model(self):
+        best_acc = -1.0
+        best_name = ""
+        best_acc_str = ""
+        try:
+            for meta_file in _MODELS_DIR.glob("*_metadata.json"):
+                with open(meta_file, encoding="utf-8") as f:
+                    meta = json.load(f)
+                acc = float(meta.get("accuracy", -1))
+                if acc > best_acc:
+                    best_acc = acc
+                    best_name = meta.get("model_name", meta_file.stem)
+                    best_acc_str = f"{acc:.4f}"
+        except Exception:
+            pass
+        self.best_model_name = best_name
+        self.best_model_accuracy = best_acc_str
 
 
 # ============ Navigation ============
@@ -43,17 +84,18 @@ def sidebar_item(text: str, url: str, icon: str = "chevron-right") -> rx.Compone
 
 def _nav_items() -> list[rx.Component]:
     items = [sidebar_item("Start", "/", "home")]
-    if ENABLE_TRAINING:
-        items.append(sidebar_item("Training", "/training", "brain-circuit"))
+    items.append(sidebar_item("Training", "/training", "brain-circuit"))
     items.append(sidebar_item("Analyse", "/analyse", "bar-chart-3"))
     items.append(sidebar_item("Vorhersage", "/vorhersage", "sparkles"))
+    items.append(sidebar_item("Sachgruppen", "/sachgruppen", "list"))
+    items.append(sidebar_item("Anleitung", "/anleitung", "book-open"))
     return items
 
 
 # ============ Mobile Navigation ============
 
 class MobileNavState(rx.State):
-    """State für das mobile Navigations-Menü."""
+    """State for the mobile navigation menu."""
 
     is_open: bool = False
 
@@ -68,10 +110,10 @@ class MobileNavState(rx.State):
 
 
 def mobile_nav_drawer() -> rx.Component:
-    """Navigations-Dialog für mobile Ansicht (Hamburger-Menü)."""
+    """Navigation dialog for mobile view (hamburger menu)."""
     items = []
     for item in _nav_items():
-        # Wrap jedes Item so dass es den Dialog schließt
+        # Wrap each item to close the dialog on click
         items.append(
             rx.box(item, on_click=MobileNavState.close, width="100%")
         )
@@ -94,7 +136,7 @@ def mobile_nav_drawer() -> rx.Component:
                 ),
                 *items,
                 rx.spacer(),
-                rx.text("Version 0.1", size="1", color="gray"),
+                rx.text("Version 0.3", size="1", color="gray"),
                 spacing="3",
                 padding=PANEL_PADDING,
                 width="100%",
@@ -122,7 +164,7 @@ def sidebar_left() -> rx.Component:
         background_color=PANEL_BG,
         border_radius=PANEL_RADIUS,
         border=PANEL_BORDER,
-        display=["none", "none", "flex"],   # auf Mobile/Tablet versteckt → Hamburger
+        display=["none", "none", "flex"],   # hidden on mobile/tablet → hamburger used instead
     )
 
 
@@ -139,24 +181,55 @@ def sidebar_right() -> rx.Component:
             )
             for code, name in AVAILABLE_MODELS
         ],
+        rx.box(height="0.75rem"),
+        rx.text("Daten", size="2", weight="bold"),
+        rx.cond(
+            BestModelState.csv_filename != "",
+            rx.vstack(
+                rx.text(BestModelState.csv_filename, size="2"),
+                rx.text(
+                    BestModelState.csv_num_samples.to_string() + " Samples",
+                    size="2", color="var(--gray-11)",
+                ),
+                rx.text(
+                    BestModelState.csv_num_classes.to_string() + " Klassen",
+                    size="2", color="var(--gray-11)",
+                ),
+                spacing="1",
+                align_items="start",
+            ),
+            rx.text("–", size="2", color="var(--gray-9)"),
+        ),
+        rx.box(height="0.75rem"),
+        rx.text("Bestes Modell (Accuracy)", size="2", weight="bold"),
+        rx.cond(
+            BestModelState.best_model_name != "",
+            rx.vstack(
+                rx.text(BestModelState.best_model_name, size="2"),
+                rx.badge(BestModelState.best_model_accuracy, color_scheme="jade"),
+                spacing="1",
+                align_items="start",
+            ),
+            rx.text("–", size="2", color="var(--gray-9)"),
+        ),
         width=SIDEBAR_WIDTH,
         min_width=["auto", "auto", "250px"],
         padding=PANEL_PADDING,
         background_color=PANEL_BG,
         border_radius=PANEL_RADIUS,
         border=PANEL_BORDER,
-        # Immer sichtbar: auf Mobile erscheint sie unterhalb des Hauptinhalts
+        # Always visible: on mobile it appears below the main content
     )
 
 
 # ============ Base Layout ============
 
 def base_layout(content: rx.Component) -> rx.Component:
-    """Haupt-Layout mit Header, Sidebars und flexiblem Inhaltsbereich."""
+    """Main layout with header, sidebars and flexible content area."""
     return rx.box(
-        # Mobile-Menü-Dialog (einmal global gerendert)
+        # Mobile menu dialog (rendered once globally)
         mobile_nav_drawer(),
-        # Inhalts-Container
+        # Content container
         rx.vstack(
             # Header
             rx.box(
@@ -174,7 +247,7 @@ def base_layout(content: rx.Component) -> rx.Component:
                     ),
                     rx.spacer(),
                     rx.color_mode.button(),
-                    # Hamburger-Icon: nur auf Mobile/Tablet sichtbar
+                    # Hamburger icon: visible on mobile/tablet only
                     rx.icon_button(
                         rx.icon("menu", size=20),
                         variant="ghost",
@@ -192,15 +265,15 @@ def base_layout(content: rx.Component) -> rx.Component:
                 width="100%",
                 border_radius=PANEL_RADIUS,
             ),
-            # 3-Spalten-Layout:
-            # Desktop: [Sidebar-left | Content (flex) | Sidebar-right] nebeneinander
-            # Mobile:  Sidebar-left (hidden) → Content → Sidebar-right untereinander
+            # 3-column layout:
+            # Desktop: [sidebar-left | content (flex) | sidebar-right] side by side
+            # Mobile:  sidebar-left (hidden) → content → sidebar-right stacked
             rx.flex(
                 sidebar_left(),
                 rx.box(
                     content,
                     flex="1",
-                    min_width="0",      # verhindert Flex-Overflow
+                    min_width="0",      # prevents flex overflow
                     padding=PANEL_PADDING,
                     background_color=PANEL_BG,
                     border_radius=PANEL_RADIUS,

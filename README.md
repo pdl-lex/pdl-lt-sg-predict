@@ -1,238 +1,165 @@
-# Sachgruppen-Klassifikation für Fränkisches Wörterbuch
+# LexoTerm – Sachgruppen-Klassifikation
 
-Automatische Vorhersage von Sachgruppen aus Bedeutungsdefinitionen mittels Machine Learning.
+Automatische Vorhersage von Sachgruppen aus Lemma und Bedeutungsdefinition mittels Machine Learning. Entwickelt für die BDO-Wörterbücher "Bayerisches Wörterbuch", "Fränkisches Wörterbuch" und "Dialektologisches Informationssystem Bayrisch-Schwaben". (Bayerische Akademie der Wissenschaften).
 
-## 📁 Projektstruktur
+---
 
-```
-.
-├── extract_data.py              # Extraktion aus XML-Dateien
-├── sachgruppen_classifier.py    # Haupt-ML-Pipeline
-├── model_comparison.py          # Vergleich verschiedener Modelle
-├── PROJEKTPLAN.md              # Detaillierte Dokumentation
-└── README.md                   # Diese Datei
-```
+## Verwendung
 
-## 🚀 Quick Start
+Das Projekt bietet zwei Nutzungswege:
 
-### 1. Daten extrahieren
+| Weg | Geeignet für |
+|---|---|
+| **Web-App** (Reflex) | Interaktives Training, Vergleich, Vorhersage im Browser |
+| **CLI** | Serverbetrieb, Batch-Training, Automatisierung |
 
-```bash
-# Einzelne Datei (Test)
-python extract_data.py
+---
 
-# Alle XML-Dateien in einem Verzeichnis
-# Editiere extract_data.py und ändere die letzte Zeile zu:
-# process_directory('/pfad/zu/xml/dateien', 'woerterbuch_daten.csv')
-python extract_data.py
-```
-
-**Output**: CSV-Datei mit Spalten: `lemma`, `bedeutung`, `sachgruppe`
-
-### 2. Modell trainieren
+## Web-App starten
 
 ```bash
-# Einfaches Training mit SVM (empfohlen)
-python sachgruppen_classifier.py --csv woerterbuch_daten.csv --model svm
-
-# Mit Hyperparameter-Tuning (dauert länger, bessere Performance)
-python sachgruppen_classifier.py --csv woerterbuch_daten.csv --model svm --tune
-
-# Andere Modelle testen
-python sachgruppen_classifier.py --csv woerterbuch_daten.csv --model logistic
-python sachgruppen_classifier.py --csv woerterbuch_daten.csv --model rf
-python sachgruppen_classifier.py --csv woerterbuch_daten.csv --model xgboost  # Benötigt xgboost
+uv sync
+reflex run
 ```
 
-### 3. Modell verwenden
+Die App ist danach unter `http://localhost:3000` erreichbar.
+
+### Funktionsumfang der Web-App
+
+**Training**
+- CSV-Upload mit Vorschau (Spaltenprüfung, Sample-Anzahl, Klassenverteilung)
+- Modellauswahl: Linear SVM, Logistische Regression, Random Forest, XGBoost, Neural Network
+- Feature-Engineering: Analyzer (`char_wb` / `word`), N-Gram-Bereiche, Mindestlänge, Stopwort-Filterung
+- Hyperparameter-Tuning:
+  - *Standard*: vordefinierte Defaults
+  - *Auto-Tune*: RandomizedSearchCV mit einstellbarer Kombinations- und Fold-Anzahl
+  - *Manuell*: direkte Eingabe von SVM-C, XGBoost-Parametern u. a.
+- Batch-Training: kartesisches Produkt aus Modell × Analyzer × Stopwörter × Mindestlänge
+- Echtzeit-Fortschrittsanzeige mit Zeitschätzung
+
+**Analyse**
+- Vergleich aller trainierten Modelle (Accuracy, Trainingszeit, Parameter)
+- SHAP-basierte Erklärbarkeit: welche Wörter/N-Gramme tragen zur Vorhersage bei
+
+**Vorhersage**
+- Eingabe von Lemma + Bedeutung → Sachgruppen-Vorhersage mit Konfidenzwerten
+- Auswahl des Modells aus allen gespeicherten Versionen
+
+Eine ausführliche Bedienungsanleitung für die Web-App findet sich in [anleitung.md](anleitung.md).
+
+---
+
+## CLI
+
+Das Skript `sachgruppen_classifier.py` kann ohne Web-App direkt verwendet werden –
+ideal für Remote-Server (z. B. LRZ-VM), Batch-Läufe und Automatisierung.
 
 ```bash
-# Interaktiver Modus
-python sachgruppen_classifier.py --predict --load sachgruppen_model.pkl
+# Einzeltraining
+python sachgruppen_classifier.py --csv daten.csv --model svm
+
+# Batch-Training: alle Kombinationen
+python sachgruppen_classifier.py --csv daten.csv \
+  --model svm logistic xgboost \
+  --analyzer char_wb word \
+  --stopwords false true
+
+# Auto-Tune
+python sachgruppen_classifier.py --csv daten.csv --model svm \
+  --tune --tune-n-iter 20 --tune-cv 5
 ```
 
-### 4. In Python verwenden
+Pro Lauf werden automatisch gespeichert:
+- `*.pkl` – trainiertes Modell
+- `*_metadata.json` – Accuracy, Trainingszeit, alle Parameter, beste Tune-Werte
+- `*_report.txt` – vollständiger Klassifikationsbericht
 
-```python
-from sachgruppen_classifier import SachgruppenClassifier
+Die vollständige CLI-Dokumentation mit allen Parametern und Beispielen: [README_CLI.md](README_CLI.md).
 
-# Modell laden
-clf = SachgruppenClassifier.load('sachgruppen_model.pkl')
+---
 
-# Vorhersagen
-bedeutungen = [
-    "spröder Bursche",
-    "Schiedsrichter beim Fußball",
-    "ungewolltes Kind"
-]
+## Modelle im Vergleich
 
-sachgruppen = clf.predict(bedeutungen)
-for bedeutung, sg in zip(bedeutungen, sachgruppen):
-    print(f"{bedeutung} → Sachgruppe {sg}")
+| Modell | Geschwindigkeit | Accuracy | Hinweis |
+|---|---|---|---|
+| **Linear SVM** | schnell | sehr gut | Empfehlung für Produktion |
+| Logistische Regression | sehr schnell | gut | gute Baseline |
+| Random Forest | mittel | gut | |
+| XGBoost | langsam | sehr gut | GPU-beschleunigt (NVIDIA) |
+| Neural Network (MLP) | mittel | gut | |
+
+---
+
+## Feature-Engineering
+
+Alle Modelle verwenden eine **TF-IDF-Pipeline** aus zwei kombinierten Vektoren:
+
+- **Lemma-Vektorisierer**: Character-N-Gramme `(2,5)`, bis 10.000 Features
+- **Bedeutungs-Vektorisierer**: Character-N-Gramme `(2,4)`, bis 20.000 Features
+- **Optional**: zusätzlicher Wort-N-Gramm-Vektorisierer
+
+Vorverarbeitungsschritte (konfigurierbar):
+- Interpunktionsbereinigung
+- Stopwort-Filterung (263 deutsche Stopwörter)
+- Mindestlängenfilter
+
+---
+
+## Projektstruktur
+
+```
+pdl-lt-sg-predict/
+├── sachgruppen_classifier.py       # ML-Kernpipeline + CLI
+├── shap_utils.py                   # SHAP-Erklärbarkeit
+├── stopwords_de.txt                # Deutsche Stopwörter
+├── anleitung.md                    # Bedienungsanleitung Web-App
+├── README_CLI.md                   # CLI-Dokumentation
+│
+├── pdl_lt_sg_predict_app/
+│   ├── pdl_lt_sg_predict_app.py    # Reflex-App, Seitenregistrierung
+│   ├── training.py                 # Trainings-Seite + State
+│   ├── vorhersage.py               # Vorhersage-Seite
+│   ├── analyse.py                  # Analyse/Vergleich-Seite
+│   ├── anleitung.py                # Anleitungs-Seite
+│   ├── state.py                    # Gemeinsamer State, Konstanten
+│   └── components.py               # UI-Komponenten
+│
+├── scripts/
+│   ├── check_gpu.py                # GPU- und ROCm-Verfügbarkeit prüfen
+│   ├── extract_data.py             # XML → CSV Extraktion
+│   ├── analyze_performance.py      # Performance-Analyse
+│   └── model_comparison.py         # Modellvergleich-Skript
+│
+├── models/                         # Gespeicherte Modelle (*.pkl + Metadaten)
+└── pyproject.toml
 ```
 
-## 📊 Modellvergleich
+---
 
-| Modell | Geschwindigkeit | Accuracy | Empfohlen für |
-|--------|----------------|----------|---------------|
-| **Linear SVM** ⭐ | ⚡⚡⚡ | 🎯🎯🎯 | **Produktions-System** |
-| Logistic Regression | ⚡⚡⚡ | 🎯🎯 | Baseline, Prototyping |
-| Random Forest | ⚡⚡ | 🎯🎯 | Feature-Analyse |
-| XGBoost | ⚡ | 🎯🎯🎯🎯 | Maximale Performance |
+## Abhängigkeiten
 
-**Empfehlung für dein Projekt**: Start mit **Linear SVM**
-
-## 🔧 Abhängigkeiten
-
-### Minimal (für SVM/Logistic/RF)
 ```bash
-pip install pandas numpy scikit-learn
+uv sync          # alle Abhängigkeiten inkl. Web-App
+
+# oder nur für CLI (ohne Reflex):
+pip install scikit-learn pandas numpy tqdm xgboost shap
 ```
 
-### Optional (für XGBoost)
-```bash
-pip install xgboost
-```
+---
 
-### Für Visualisierung
-```bash
-pip install matplotlib seaborn
-```
+## Trainingsdaten-Format
 
-## 📈 Erwartete Performance
+CSV mit Semikolon- oder Kommatrennung, Pflichtfelder:
 
-Bei 70.000 Wörterbuch-Einträgen:
+| Spalte | Inhalt | Beispiel |
+|---|---|---|
+| `lemma` | Stichwort | `Waggala` |
+| `bedeutung` | Bedeutungsangabe | `kleines Kind; wackelig auf den Beinen` |
+| `sachgruppe` | Sachgruppen-Nummer | `1830` |
 
-- **Baseline (Logistic Regression)**: 60-75% Accuracy
-- **Optimiert (Linear SVM)**: 75-85% Accuracy
-- **Best Case (XGBoost mit Tuning)**: 85-90% Accuracy
+---
 
-Performance hängt ab von:
-- Anzahl der Sachgruppen (mehr = schwieriger)
-- Class Balance (unbalanciert = schwieriger)
-- Qualität der Definitionen (kurz/lang, eindeutig/mehrdeutig)
-
-## 🎓 Workflow-Beispiel
-
-### Vollständiger Ablauf für 70k Dateien
-
-```bash
-# 1. Alle XML-Dateien verarbeiten
-python extract_data.py  # Editiere vorher den Pfad!
-
-# 2. Baseline-Modell trainieren
-python sachgruppen_classifier.py \
-    --csv woerterbuch_daten.csv \
-    --model logistic \
-    --save baseline_model.pkl
-
-# 3. SVM-Modell mit Tuning trainieren
-python sachgruppen_classifier.py \
-    --csv woerterbuch_daten.csv \
-    --model svm \
-    --tune \
-    --save svm_tuned_model.pkl
-
-# 4. XGBoost für maximale Performance
-python sachgruppen_classifier.py \
-    --csv woerterbuch_daten.csv \
-    --model xgboost \
-    --tune \
-    --save xgboost_model.pkl
-
-# 5. Bestes Modell verwenden
-python sachgruppen_classifier.py \
-    --predict \
-    --load svm_tuned_model.pkl
-```
-
-## 🔍 Feature Engineering
-
-Das Modell verwendet **TF-IDF** mit Character-level n-grams:
-
-```python
-TfidfVectorizer(
-    ngram_range=(1, 3),      # Uni-, Bi-, Trigrams
-    analyzer='char_wb',       # Character n-grams (erfasst Morphologie)
-    max_features=10000,       # Top-10k Features
-    min_df=2,                 # Mindestens 2x vorkommen
-    sublinear_tf=True         # Log-scaling
-)
-```
-
-**Warum Character n-grams?**
-- Erfasst deutsche Morphologie (z.B. Komposita)
-- Robust gegen Schreibvarianten
-- Funktioniert mit OOV-Wörtern
-
-## 📝 Beispiel-Output
-
-```
-Dataset Info:
-  Anzahl Einträge: 68523
-  Anzahl Sachgruppen: 342
-  Durchschn. Bedeutungslänge: 28.4 Zeichen
-
-Top-10 Sachgruppen:
-6121    4521
-7010    3892
-6114    3245
-...
-
-Trainiere SVM-Modell...
-Trainingsbeispiele: 54818
-Anzahl Klassen: 342
-Training abgeschlossen!
-
-EVALUATION
-============================================================
-Accuracy: 0.8234
-
-Klassifikations-Report:
-              precision    recall  f1-score   support
-        6121       0.85      0.87      0.86       905
-        7010       0.82      0.80      0.81       778
-        6114       0.79      0.83      0.81       649
-        ...
-```
-
-## 🎯 Nächste Schritte
-
-1. **Fehleranalyse**: Welche Bedeutungen werden falsch klassifiziert?
-2. **Feature Engineering**: 
-   - Lemma als zusätzliches Feature
-   - Textlänge
-   - Spezielle Keywords
-3. **Ensemble**: Kombination mehrerer Modelle
-4. **BERT**: Falls klassische Modelle nicht gut genug
-
-## 🐛 Troubleshooting
-
-### "Memory Error" beim Training
-→ Reduziere `max_features` in der TfidfVectorizer-Konfiguration
-
-### Niedriger Accuracy
-→ Überprüfe Class Balance mit `df['sachgruppe'].value_counts()`
-→ Verwende Hyperparameter-Tuning (`--tune` Flag)
-
-### XGBoost nicht gefunden
-→ `pip install xgboost`
-
-## 📚 Weitere Ressourcen
-
-- **PROJEKTPLAN.md**: Detaillierte Erklärungen und Theorie
-- **model_comparison.py**: Benchmark verschiedener Algorithmen
-- Scikit-learn Docs: https://scikit-learn.org/
-
-## 🤝 Contributing
-
-Vorschläge für Verbesserungen:
-1. Zusätzliche Features (z.B. POS-Tags)
-2. Weitere Modelle (z.B. BERT)
-3. Bessere Hyperparameter
-4. Visualisierungen
-
-## 📄 Lizenz
+## Lizenz
 
 Daten: CC-BY-SA 4.0 (Bayerische Akademie der Wissenschaften)
 Code: MIT License
