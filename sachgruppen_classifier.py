@@ -582,6 +582,14 @@ class SachgruppenClassifier:
         if self.pipeline is None:
             raise ValueError("Model must be trained first!")
 
+        # Remove XGBoost callbacks before saving: local callback classes
+        # (defined inside train()) cannot be pickled.
+        if self.model_type == 'xgboost':
+            try:
+                self.pipeline.named_steps['classifier'].set_params(callbacks=None)
+            except Exception:
+                pass
+
         with open(filepath, 'wb') as f:
             pickle.dump({
                 'pipeline': self.pipeline,
