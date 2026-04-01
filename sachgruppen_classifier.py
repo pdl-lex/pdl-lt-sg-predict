@@ -136,7 +136,10 @@ class SachgruppenClassifier:
                  xgb_n_estimators: int = 300,
                  xgb_max_depth: int = 6,
                  xgb_learning_rate: float = 0.05,
-                 xgb_subsample: float = 0.8):
+                 xgb_subsample: float = 0.8,
+                 nn_hidden_layer_sizes: tuple = (200, 100, 50),
+                 nn_alpha: float = 0.0001,
+                 nn_learning_rate_init: float = 0.001):
         """
         Args:
             model_type: 'svm', 'logistic', 'rf', 'xgboost', or 'nn' (neural network)
@@ -155,6 +158,9 @@ class SachgruppenClassifier:
             xgb_max_depth: Maximum tree depth for XGBoost (default: 6)
             xgb_learning_rate: Learning rate for XGBoost (default: 0.05)
             xgb_subsample: Row subsampling rate for XGBoost (default: 0.8)
+            nn_hidden_layer_sizes: MLP hidden layer sizes as tuple (default: (200, 100, 50))
+            nn_alpha: L2 regularization strength for MLP (default: 0.0001)
+            nn_learning_rate_init: Initial learning rate for MLP adam solver (default: 0.001)
         """
         self.model_type = model_type
         self.random_state = random_state
@@ -172,6 +178,9 @@ class SachgruppenClassifier:
         self.xgb_max_depth = xgb_max_depth
         self.xgb_learning_rate = xgb_learning_rate
         self.xgb_subsample = xgb_subsample
+        self.nn_hidden_layer_sizes = nn_hidden_layer_sizes
+        self.nn_alpha = nn_alpha
+        self.nn_learning_rate_init = nn_learning_rate_init
         self.pipeline = None
         self.classes_ = None
         self.label_encoder = None  # XGBoost only: string → integer encoding
@@ -298,13 +307,13 @@ class SachgruppenClassifier:
         elif self.model_type == 'nn':
             # Neural network (multi-layer perceptron)
             classifier = MLPClassifier(
-                hidden_layer_sizes=(200, 100, 50),  # 3 hidden layers
+                hidden_layer_sizes=self.nn_hidden_layer_sizes,
                 activation='relu',
                 solver='adam',
-                alpha=0.0001,  # L2 regularization
+                alpha=self.nn_alpha,
                 batch_size=256,
                 learning_rate='adaptive',
-                learning_rate_init=0.001,
+                learning_rate_init=self.nn_learning_rate_init,
                 max_iter=50,  # epochs
                 random_state=self.random_state,
                 verbose=True,
@@ -417,6 +426,12 @@ class SachgruppenClassifier:
                 'classifier__max_depth': [4, 6, 8],
                 'classifier__learning_rate': [0.01, 0.05, 0.1],
                 'classifier__subsample': [0.7, 0.8, 0.9],
+            }
+        elif self.model_type == 'nn':
+            param_distributions = {
+                'classifier__hidden_layer_sizes': [(100,), (200, 100), (200, 100, 50), (300, 150, 75)],
+                'classifier__alpha': [1e-5, 1e-4, 1e-3, 1e-2],
+                'classifier__learning_rate_init': [1e-4, 5e-4, 1e-3, 5e-3],
             }
         else:
             param_distributions = {}
@@ -610,6 +625,9 @@ class SachgruppenClassifier:
                 'xgb_max_depth': self.xgb_max_depth,
                 'xgb_learning_rate': self.xgb_learning_rate,
                 'xgb_subsample': self.xgb_subsample,
+                'nn_hidden_layer_sizes': self.nn_hidden_layer_sizes,
+                'nn_alpha': self.nn_alpha,
+                'nn_learning_rate_init': self.nn_learning_rate_init,
             }, f)
 
         print(f"\nModel saved: {filepath}")
@@ -636,6 +654,9 @@ class SachgruppenClassifier:
             xgb_max_depth=data.get('xgb_max_depth', 6),
             xgb_learning_rate=data.get('xgb_learning_rate', 0.05),
             xgb_subsample=data.get('xgb_subsample', 0.8),
+            nn_hidden_layer_sizes=data.get('nn_hidden_layer_sizes', (200, 100, 50)),
+            nn_alpha=data.get('nn_alpha', 0.0001),
+            nn_learning_rate_init=data.get('nn_learning_rate_init', 0.001),
         )
         instance.pipeline = data['pipeline']
         instance.classes_ = data['classes']
@@ -652,6 +673,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        use_word_features=True, use_svd=False, svd_components=500,
                        svm_c=1.0, xgb_n_estimators=300, xgb_max_depth=6,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
+                       nn_hidden_layer_sizes=(200, 100, 50), nn_alpha=0.0001,
+                       nn_learning_rate_init=0.001,
                        tune_n_iter=20, tune_cv=3,
                        progress_callback=None):
     """
@@ -777,6 +800,9 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         xgb_max_depth=xgb_max_depth,
         xgb_learning_rate=xgb_learning_rate,
         xgb_subsample=xgb_subsample,
+        nn_hidden_layer_sizes=nn_hidden_layer_sizes,
+        nn_alpha=nn_alpha,
+        nn_learning_rate_init=nn_learning_rate_init,
     )
     clf.train(X_train, y_train, tune_hyperparameters=tune,
               tune_n_iter=tune_n_iter, tune_cv=tune_cv,
@@ -966,6 +992,12 @@ if __name__ == '__main__':
                         help='XGBoost: learning rate')
     parser.add_argument('--xgb-subsample', type=float, default=0.8,
                         help='XGBoost: row subsampling rate')
+    parser.add_argument('--nn-hidden-layers', type=str, default='200,100,50',
+                        help='NN: hidden layer sizes as comma-separated integers (default: 200,100,50)')
+    parser.add_argument('--nn-alpha', type=float, default=0.0001,
+                        help='NN: L2 regularization strength (default: 0.0001)')
+    parser.add_argument('--nn-learning-rate-init', type=float, default=0.001,
+                        help='NN: initial learning rate for adam solver (default: 0.001)')
     parser.add_argument('--gpu', action='store_true',
                         help='GPU acceleration for XGBoost (requires CUDA/ROCm)')
 
@@ -986,6 +1018,9 @@ if __name__ == '__main__':
                         help='Load a saved model (for --predict)')
 
     args = parser.parse_args()
+
+    # Parse --nn-hidden-layers string "200,100,50" → tuple (200, 100, 50)
+    args.nn_hidden_layer_sizes = tuple(int(x) for x in args.nn_hidden_layers.split(','))
 
     if args.predict:
         if not args.load:
@@ -1073,6 +1108,9 @@ if __name__ == '__main__':
                     xgb_max_depth=args.xgb_max_depth,
                     xgb_learning_rate=args.xgb_learning_rate,
                     xgb_subsample=args.xgb_subsample,
+                    nn_hidden_layer_sizes=args.nn_hidden_layer_sizes,
+                    nn_alpha=args.nn_alpha,
+                    nn_learning_rate_init=args.nn_learning_rate_init,
                     tune_n_iter=args.tune_n_iter,
                     tune_cv=tune_cv,
                     progress_callback=lambda pct, msg: _write_progress(
@@ -1108,6 +1146,9 @@ if __name__ == '__main__':
                 "xgb_max_depth": args.xgb_max_depth if model == 'xgboost' else None,
                 "xgb_learning_rate": args.xgb_learning_rate if model == 'xgboost' else None,
                 "xgb_subsample": args.xgb_subsample if model == 'xgboost' else None,
+                "nn_hidden_layer_sizes": list(args.nn_hidden_layer_sizes) if model == 'nn' else None,
+                "nn_alpha": args.nn_alpha if model == 'nn' else None,
+                "nn_learning_rate_init": args.nn_learning_rate_init if model == 'nn' else None,
             }
             with open(f"{save_base}_metadata.json", "w", encoding="utf-8") as fh:
                 json.dump(metadata, fh, indent=2, ensure_ascii=False)

@@ -50,6 +50,9 @@ class TrainingState(BaseState):
     xgb_max_depth_str: str = "6"
     xgb_learning_rate_str: str = "0.05"
     xgb_subsample_str: str = "0.8"
+    nn_hidden_layers_str: str = "200,100,50"
+    nn_alpha_str: str = "0.0001"
+    nn_learning_rate_init_str: str = "0.001"
 
     # Batch training config
     batch_model_types: list[str] = ["svm"]
@@ -300,6 +303,9 @@ class TrainingState(BaseState):
     def set_xgb_max_depth_str(self, v: str): self.xgb_max_depth_str = v
     def set_xgb_learning_rate_str(self, v: str): self.xgb_learning_rate_str = v
     def set_xgb_subsample_str(self, v: str): self.xgb_subsample_str = v
+    def set_nn_hidden_layers_str(self, v: str): self.nn_hidden_layers_str = v
+    def set_nn_alpha_str(self, v: str): self.nn_alpha_str = v
+    def set_nn_learning_rate_init_str(self, v: str): self.nn_learning_rate_init_str = v
 
     # ---- Batch configuration ----
 
@@ -402,6 +408,9 @@ class TrainingState(BaseState):
                 "--xgb-max-depth", self.xgb_max_depth_str,
                 "--xgb-learning-rate", self.xgb_learning_rate_str,
                 "--xgb-subsample", self.xgb_subsample_str,
+                "--nn-hidden-layers", self.nn_hidden_layers_str,
+                "--nn-alpha", self.nn_alpha_str,
+                "--nn-learning-rate-init", self.nn_learning_rate_init_str,
                 "--output-dir", str(MODELS_DIR),
                 "--progress-file", str(progress_file),
             ]
@@ -555,6 +564,9 @@ class TrainingState(BaseState):
                 "--xgb-max-depth", self.xgb_max_depth_str,
                 "--xgb-learning-rate", self.xgb_learning_rate_str,
                 "--xgb-subsample", self.xgb_subsample_str,
+                "--nn-hidden-layers", self.nn_hidden_layers_str,
+                "--nn-alpha", self.nn_alpha_str,
+                "--nn-learning-rate-init", self.nn_learning_rate_init_str,
                 "--output-dir", str(MODELS_DIR),
                 "--progress-file", str(progress_file),
             ]
@@ -1023,7 +1035,7 @@ def training_page() -> rx.Component:
                         rx.vstack(
                             rx.callout(
                                 rx.text(
-                                    "SVM und XGBoost erzielen in der Regel die höchste Accuracy und bieten "
+                                    "SVM, XGBoost und neurale Netze erzielen in der Regel die höchste Accuracy und bieten "
                                     "daher erweiterte Tuning-Optionen. Für andere Modelle werden Standardwerte verwendet.",
                                     size="2",
                                 ),
@@ -1154,6 +1166,89 @@ def training_page() -> rx.Component:
                                         rx.text(
                                             "Anteil der Trainingsdaten, der pro Baum zufällig gezogen wird. "
                                             "Werte < 1.0 reduzieren Overfitting und beschleunigen das Training. Standard: 0.8",
+                                            size="2", color="var(--gray-11)", flex="1",
+                                        ),
+                                        align_items="center",
+                                        spacing="6",
+                                        width="100%",
+                                    ),
+
+                                    spacing="3",
+                                ),
+                                padding="1rem",
+                                border="1px solid var(--gray-6)",
+                                border_radius="var(--radius-2)",
+                                width="100%",
+                            ),
+
+                            # Neural Network parameters
+                            rx.box(
+                                rx.vstack(
+                                    rx.text("Neural Network (MLP)", weight="bold", size="3"),
+
+                                    rx.hstack(
+                                        rx.vstack(
+                                            rx.text("Hidden Layers", weight="bold", size="2"),
+                                            rx.select(
+                                                ["100", "200,100", "200,100,50", "300,150,75", "400,200,100,50"],
+                                                value=TrainingState.nn_hidden_layers_str,
+                                                on_change=TrainingState.set_nn_hidden_layers_str,
+                                            ),
+                                            spacing="1",
+                                            min_width="220px",
+                                        ),
+                                        rx.text(
+                                            "Größe und Anzahl der versteckten Schichten. Mehr/größere Schichten "
+                                            "erhöhen die Modellkapazität, benötigen aber mehr Trainingszeit und "
+                                            "neigen eher zu Overfitting. Standard: 200,100,50",
+                                            size="2", color="var(--gray-11)", flex="1",
+                                        ),
+                                        align_items="center",
+                                        spacing="6",
+                                        width="100%",
+                                    ),
+
+                                    rx.divider(),
+
+                                    rx.hstack(
+                                        rx.vstack(
+                                            rx.text("L2-Regularisierung (alpha)", weight="bold", size="2"),
+                                            rx.select(
+                                                ["0.00001", "0.0001", "0.001", "0.01", "0.1"],
+                                                value=TrainingState.nn_alpha_str,
+                                                on_change=TrainingState.set_nn_alpha_str,
+                                            ),
+                                            spacing="1",
+                                            min_width="220px",
+                                        ),
+                                        rx.text(
+                                            "Stärke der L2-Regularisierung der Gewichte. Größere Werte "
+                                            "reduzieren Overfitting, können aber die Modellkapazität einschränken. "
+                                            "Standard: 0.0001",
+                                            size="2", color="var(--gray-11)", flex="1",
+                                        ),
+                                        align_items="center",
+                                        spacing="6",
+                                        width="100%",
+                                    ),
+
+                                    rx.divider(),
+
+                                    rx.hstack(
+                                        rx.vstack(
+                                            rx.text("Lernrate (learning_rate_init)", weight="bold", size="2"),
+                                            rx.select(
+                                                ["0.0001", "0.0005", "0.001", "0.005", "0.01"],
+                                                value=TrainingState.nn_learning_rate_init_str,
+                                                on_change=TrainingState.set_nn_learning_rate_init_str,
+                                            ),
+                                            spacing="1",
+                                            min_width="220px",
+                                        ),
+                                        rx.text(
+                                            "Initiale Lernrate des Adam-Optimierers. Kleinere Werte konvergieren "
+                                            "stabiler aber langsamer; größere Werte können instabil werden. "
+                                            "Standard: 0.001",
                                             size="2", color="var(--gray-11)", flex="1",
                                         ),
                                         align_items="center",

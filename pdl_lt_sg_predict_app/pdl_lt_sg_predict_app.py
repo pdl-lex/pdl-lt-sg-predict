@@ -20,7 +20,6 @@ def index() -> rx.Component:
                 size="4",
                 color="var(--gray-11)"
             ),
-            rx.divider(),
 
             rx.heading("Features", size="5", margin_top="2rem"),
 
@@ -41,18 +40,10 @@ def index() -> rx.Component:
                     ),
                     rx.data_list.item(
                         rx.data_list.label(
-                            rx.badge("Modellvergleich", variant="soft"),
-                        ),
-                        rx.data_list.value(
-                            "Vergleichen der Performance und Parameter verschiedener trainierter Modelle.",
-                        ),
-                    ),
-                    rx.data_list.item(
-                        rx.data_list.label(
                             rx.badge("Analyse", variant="soft"),
                         ),
                         rx.data_list.value(
-                            "Übersicht aller trainierten Modelle mit Accuracy, Parametern und Trainingszeiten.",
+                            "Übersicht aller trainierten Modelle mit Accuracy, Parametern und Trainingszeiten",
                         ),
                     ),
                     rx.data_list.item(
@@ -60,7 +51,15 @@ def index() -> rx.Component:
                             rx.badge("Vorhersage", variant="soft"),
                         ),
                         rx.data_list.value(
-                            "Klassifizierung/Vorhersage für neue Lemmata (einzeln oder im Batch).",
+                            "Klassifizierung/Vorhersage für neue Lemmata (einzeln oder im Batch)",
+                        ),
+                    ),
+                    rx.data_list.item(
+                        rx.data_list.label(
+                            rx.badge("Sachgruppen", variant="soft"),
+                        ),
+                        rx.data_list.value(
+                            "Auswertung der Trainings- und Prognosedaten pro Sachgruppe",
                         ),
                     ),
                 ),
