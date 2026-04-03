@@ -4,11 +4,9 @@ Training-Seite: TrainingState + training_page.
 import asyncio
 import json
 import math
-import os
 import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import reflex as rx
@@ -18,7 +16,6 @@ from .state import (
     BaseState,
     AVAILABLE_MODELS,
     MODELS_DIR,
-    MODEL_DISPLAY_NAMES,
     MAX_FILE_SIZE,
     _TIME_FALLBACKS,
     _TIME_FALLBACK_SAMPLES,

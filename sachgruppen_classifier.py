@@ -1129,6 +1129,7 @@ if __name__ == '__main__':
                 "accuracy": accuracy,
                 "training_time": training_time,
                 "num_samples": num_samples,
+                "num_classes": len(clf.classes_) if clf.classes_ is not None else 0,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "csv_file": args.csv,
                 "test_size": args.test_size,

@@ -3,7 +3,6 @@ Analyse-Seite: AnalysisState + analyse_page.
 """
 import json
 from datetime import datetime
-from pathlib import Path
 
 import reflex as rx
 from pdl_lt_reflex_aggrid_wrapper import ag_grid
@@ -249,26 +248,30 @@ def analyse_page() -> rx.Component:
 
                         rx.cond(
                             AnalysisState.selected_row_model_file,
-                            rx.hstack(
-                                rx.icon("sparkles", size=16, color="var(--jade-11)"),
-                                rx.text(
-                                    AnalysisState.selected_row_model_file,
-                                    size="2", color="var(--gray-11)",
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.icon("sparkles", size=16, color="var(--jade-11)"),
+                                    rx.text(
+                                        AnalysisState.selected_row_model_file,
+                                        size="2", color="var(--gray-11)",
+                                    ),
                                 ),
-                                rx.button(
-                                    rx.icon("chart-bar", size=14),
-                                    "Klassifikations-Report",
-                                    on_click=AnalysisState.open_report_for_selected,
-                                    color_scheme="jade",
-                                    variant="soft",
+                                rx.hstack(
+                                    rx.button(
+                                        rx.icon("chart-bar", size=14),
+                                        "Klassifikations-Report",
+                                        on_click=AnalysisState.open_report_for_selected,
+                                        color_scheme="jade",
+                                        variant="soft",
+                                    ),
+                                    rx.button(
+                                        "Modell für Vorhersage auswählen",
+                                        on_click=AnalysisState.go_to_vorhersage_with_model,
+                                        color_scheme="jade",
+                                    ),
+                                    spacing="3",
+                                    align_items="center",
                                 ),
-                                rx.button(
-                                    "Modell für Vorhersage auswählen",
-                                    on_click=AnalysisState.go_to_vorhersage_with_model,
-                                    color_scheme="jade",
-                                ),
-                                spacing="3",
-                                align_items="center",
                             ),
                         ),
 

@@ -1,6 +1,6 @@
 # LexoTerm – Sachgruppen-Klassifikation
 
-Automatische Vorhersage von Sachgruppen aus Lemma und Bedeutungsdefinition mittels Machine Learning. Entwickelt für die BDO-Wörterbücher "Bayerisches Wörterbuch", "Fränkisches Wörterbuch" und "Dialektologisches Informationssystem Bayrisch-Schwaben". (Bayerische Akademie der Wissenschaften).
+Automatische Vorhersage von Sachgruppen aus Lemma und Bedeutungsdefinition mittels Machine Learning. Entwickelt für die BDO-Wörterbücher "Fränkisches Wörterbuch" und "Dialektologisches Informationssystem Bayrisch-Schwaben". (Bayerische Akademie der Wissenschaften).
 
 ---
 
@@ -15,16 +15,36 @@ Das Projekt bietet zwei Nutzungswege:
 
 ---
 
-## Web-App starten
+## Installation
+
+### Repo herunterladen
+z.B. mit 
+
+```bash
+git clone https://github.com/pdl-lex/pdl-lt-sg-predict.git
+```
+
+### Web-App starten
 
 ```bash
 uv sync
-reflex run
+uv run reflex run
 ```
 
 Die App ist danach unter `http://localhost:3000` erreichbar.
 
-### Funktionsumfang der Web-App
+### Modelle herunterladen
+
+Die App aus diesem Github-Repo kommt ohne vortrainierte Modelle.
+Es können entweder eigene Modelle trainiert werden, oder fertige Modelle (trainiert auf WBF und DIBS) nachgeladen werden. Dazu die Modelle (330 MB) hier (https://lexoterm.de/static/sgpredict-models.zip) herunterladen, und im Programmverzeichnis in den Ordner "models" kopieren.
+
+### .env konfigurieren
+
+Das Repo kommt mit einer .env_copy Konfigurationsdatei. Diese in .env umbennen, und die Werte entsprechend anpassen.
+
+---
+
+## Funktionsumfang der Web-App
 
 **Training**
 - CSV-Upload mit Vorschau (Spaltenprüfung, Sample-Anzahl, Klassenverteilung)
@@ -161,5 +181,4 @@ CSV mit Semikolon- oder Kommatrennung, Pflichtfelder:
 
 ## Lizenz
 
-Daten: CC-BY-SA 4.0 (Bayerische Akademie der Wissenschaften)
-Code: MIT License
+Daten & Code: CC-BY-SA 4.0 (Bayerische Akademie der Wissenschaften)
