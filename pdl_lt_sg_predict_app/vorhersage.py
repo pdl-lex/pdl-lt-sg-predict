@@ -30,6 +30,7 @@ class PredictionState(BaseState):
 
     # Batch prediction
     batch_filename: str = ""
+    batch_file_path: str = ""
     batch_upload_error: str = ""
     batch_results: list[dict] = []
     is_predicting: bool = False
@@ -52,7 +53,11 @@ class PredictionState(BaseState):
 
     @rx.var
     def can_predict(self) -> bool:
-        return self.has_model and bool(self.input_lemma) and bool(self.input_bedeutung)
+        return self.has_model and bool(self.input_bedeutung)
+
+    @rx.var
+    def can_batch_predict(self) -> bool:
+        return self.has_model and bool(self.batch_filename)
 
     @rx.var
     def has_batch_results(self) -> bool:
@@ -92,17 +97,15 @@ class PredictionState(BaseState):
 
     def load_available_models(self):
         """Load list of available models."""
-        models_dir = MODELS_DIR
-        model_files = [f.name for f in models_dir.glob("model_*.pkl")]
+        model_files = [f.name for f in MODELS_DIR.glob("*.pkl")]
         self.available_models = sorted(model_files, reverse=True)
 
         if model_files and not self.selected_model_file:
-            self.selected_model_file = model_files[0]
+            self.selected_model_file = self.available_models[0]
 
     def preselect_and_load(self, model_file: str):
         """Load available models and set the given model as active."""
-        model_files = sorted([f.name for f in MODELS_DIR.glob("model_*.pkl")], reverse=True)
-        self.available_models = model_files
+        self.available_models = sorted([f.name for f in MODELS_DIR.glob("*.pkl")], reverse=True)
         self.selected_model_file = model_file
 
     def predict_single(self):
@@ -206,9 +209,10 @@ class PredictionState(BaseState):
                 yield from self._run_shap_computation(clf, X_pred, model_path_str)
 
     async def handle_batch_upload(self, files: list[rx.UploadFile]):
-        """Batch CSV upload."""
+        """Batch CSV upload: validate file and store path; does not run prediction."""
         self.batch_upload_error = ""
         self.batch_filename = ""
+        self.batch_file_path = ""
         self.batch_results = []
         yield
 
@@ -229,38 +233,130 @@ class PredictionState(BaseState):
             file_path = session_path / safe_filename
 
             content = await file.read()
-
             with open(file_path, "wb") as f:
                 f.write(content)
 
-            # Validate
-            df = pd.read_csv(file_path, sep=None, engine="python")
-            if 'lemma' not in df.columns or 'bedeutung' not in df.columns:
-                self.batch_upload_error = "CSV muss 'lemma' und 'bedeutung' Spalten enthalten"
+            # Validate – try common separators if auto-detection fails
+            df = None
+            for sep in [None, ";", ",", "\t"]:
+                try:
+                    kwargs = {"engine": "python"} if sep is None else {}
+                    df = pd.read_csv(file_path, sep=sep, **kwargs)
+                    if len(df.columns) >= 1:
+                        break
+                except Exception:
+                    continue
+            if df is None or df.empty:
+                self.batch_upload_error = "CSV konnte nicht gelesen werden"
+                return
+
+            if 'bedeutung' not in df.columns:
+                self.batch_upload_error = "CSV muss mindestens eine 'bedeutung' Spalte enthalten"
                 return
 
             self.batch_filename = safe_filename
+            self.batch_file_path = str(file_path)
 
-            # Batch Prediction
-            self.is_predicting = True
-            yield
+        except Exception as e:
+            self.batch_upload_error = f"Fehler: {str(e)}"
 
-            model_path = MODELS_DIR / self.selected_model_file
+    def run_batch_prediction(self):
+        """Run batch prediction on the uploaded file with the currently selected model."""
+        if not self.can_batch_predict:
+            return
 
-            clf = _get_model(str(model_path))
+        self.batch_upload_error = ""
+        self.batch_results = []
+        self.is_predicting = True
+        yield
 
-            predictions = clf.predict(df[['lemma', 'bedeutung']])
+        try:
+            # Re-read the saved file
+            file_path = Path(self.batch_file_path)
+            df = None
+            for sep in [None, ";", ",", "\t"]:
+                try:
+                    kwargs = {"engine": "python"} if sep is None else {}
+                    df = pd.read_csv(file_path, sep=sep, **kwargs)
+                    if len(df.columns) >= 1:
+                        break
+                except Exception:
+                    continue
+            if df is None or df.empty:
+                self.batch_upload_error = "CSV konnte nicht gelesen werden"
+                return
+            if 'lemma' not in df.columns:
+                df['lemma'] = ""
+
+            clf = _get_model(str(MODELS_DIR / self.selected_model_file))
+
+            X_batch = df[['lemma', 'bedeutung']]
+            predictions = clf.predict(X_batch)
+
+            # Class labels (decoded for XGBoost/NN)
+            classifier_step = clf.pipeline.named_steps["classifier"]
+            classes = classifier_step.classes_
+            if clf.label_encoder is not None:
+                classes = clf.label_encoder.inverse_transform(classes)
+
+            # Top-3 via predict_proba or decision_function
+            has_proba = False
+            top3_indices = None
+            proba_matrix = None
+
+            try:
+                proba_matrix = np.array(clf.predict_proba(X_batch), dtype=float)
+                has_proba = True
+                top3_indices = np.argsort(proba_matrix, axis=1)[:, ::-1][:, :3]
+            except Exception:
+                try:
+                    scores = np.array(
+                        clf.pipeline.named_steps["classifier"].decision_function(
+                            clf.pipeline[:-1].transform(X_batch)
+                        ),
+                        dtype=float,
+                    )
+                    if scores.ndim == 2:
+                        top3_indices = np.argsort(scores, axis=1)[:, ::-1][:, :3]
+                except Exception:
+                    pass
 
             # Collect results
             results = []
             for idx, (_, row) in enumerate(df.iterrows()):
                 sg = str(predictions[idx])
-                results.append({
+                result = {
                     'lemma': row['lemma'],
                     'bedeutung': row['bedeutung'],
                     'sachgruppe': sg,
                     'beschreibung': SACHGRUPPEN_MAP.get(sg, "(unbekannt)"),
-                })
+                    'wahrscheinlichkeit': "",
+                    'sachgruppe_2': "",
+                    'beschreibung_2': "",
+                    'wahrscheinlichkeit_2': "",
+                    'sachgruppe_3': "",
+                    'beschreibung_3': "",
+                    'wahrscheinlichkeit_3': "",
+                }
+
+                if top3_indices is not None:
+                    top3 = top3_indices[idx]
+                    if has_proba:
+                        result['wahrscheinlichkeit'] = f"{proba_matrix[idx, top3[0]] * 100:.1f}%"
+                    if len(top3) > 1:
+                        sg2 = str(classes[top3[1]])
+                        result['sachgruppe_2'] = sg2
+                        result['beschreibung_2'] = SACHGRUPPEN_MAP.get(sg2, "(unbekannt)")
+                        if has_proba:
+                            result['wahrscheinlichkeit_2'] = f"{proba_matrix[idx, top3[1]] * 100:.1f}%"
+                    if len(top3) > 2:
+                        sg3 = str(classes[top3[2]])
+                        result['sachgruppe_3'] = sg3
+                        result['beschreibung_3'] = SACHGRUPPEN_MAP.get(sg3, "(unbekannt)")
+                        if has_proba:
+                            result['wahrscheinlichkeit_3'] = f"{proba_matrix[idx, top3[2]] * 100:.1f}%"
+
+                results.append(result)
 
             self.batch_results = results
 
@@ -572,7 +668,7 @@ def vorhersage_page() -> rx.Component:
 
                     rx.vstack(
                         rx.input(
-                            placeholder="Lemma (z.B. 'Waggala')",
+                            placeholder="Lemma (z.B. 'Waggala') – optional",
                             value=PredictionState.input_lemma,
                             on_change=PredictionState.set_input_lemma,
                             width="100%"
@@ -659,19 +755,34 @@ def vorhersage_page() -> rx.Component:
             rx.card(
                 rx.vstack(
                     rx.heading("Batch-Vorhersage", size="5"),
-                    rx.text("CSV mit Spalten: lemma, bedeutung", color="var(--gray-11)"),
+                    rx.text("CSV mit Spalte 'bedeutung' (Spalte 'lemma' optional)", color="var(--gray-11)"),
 
-                    rx.upload(
-                        rx.button("CSV hochladen"),
-                        id="batch_upload",
-                        accept={".csv": ["text/csv"]},
-                        max_files=1,
-                        on_drop=PredictionState.handle_batch_upload
+                    rx.hstack(
+                        rx.upload(
+                            rx.button("CSV hochladen"),
+                            id="batch_upload",
+                            accept={".csv": ["text/csv"]},
+                            max_files=1,
+                            on_drop=PredictionState.handle_batch_upload,
+                        ),
+                        rx.cond(
+                            PredictionState.batch_filename,
+                            rx.text(
+                                PredictionState.batch_filename,
+                                size="2",
+                                color="var(--gray-11)",
+                            ),
+                        ),
+                        align_items="center",
+                        spacing="3",
                     ),
 
-                    rx.cond(
-                        PredictionState.batch_filename,
-                        rx.text(f"Datei: {PredictionState.batch_filename}")
+                    rx.button(
+                        "Vorhersagen",
+                        on_click=PredictionState.run_batch_prediction,
+                        disabled=~PredictionState.can_batch_predict,
+                        loading=PredictionState.is_predicting,
+                        color_scheme="jade",
                     ),
 
                     rx.cond(
@@ -706,8 +817,15 @@ def vorhersage_page() -> rx.Component:
                                 column_defs=[
                                     ag_grid.column_def(field="lemma", header_name="Lemma", sortable=True, filter=True),
                                     ag_grid.column_def(field="bedeutung", header_name="Bedeutung", sortable=True, filter=True),
-                                    ag_grid.column_def(field="sachgruppe", header_name="Sachgruppe", sortable=True, filter=True),
-                                    ag_grid.column_def(field="beschreibung", header_name="Beschreibung", sortable=True, filter=True),
+                                    ag_grid.column_def(field="sachgruppe", header_name="SG 1", sortable=True, filter=True),
+                                    ag_grid.column_def(field="beschreibung", header_name="Beschreibung 1", sortable=True, filter=True),
+                                    ag_grid.column_def(field="wahrscheinlichkeit", header_name="W. 1", sortable=True, filter=True),
+                                    ag_grid.column_def(field="sachgruppe_2", header_name="SG 2", sortable=True, filter=True),
+                                    ag_grid.column_def(field="beschreibung_2", header_name="Beschreibung 2", sortable=True, filter=True),
+                                    ag_grid.column_def(field="wahrscheinlichkeit_2", header_name="W. 2", sortable=True, filter=True),
+                                    ag_grid.column_def(field="sachgruppe_3", header_name="SG 3", sortable=True, filter=True),
+                                    ag_grid.column_def(field="beschreibung_3", header_name="Beschreibung 3", sortable=True, filter=True),
+                                    ag_grid.column_def(field="wahrscheinlichkeit_3", header_name="W. 3", sortable=True, filter=True),
                                 ],
                                 default_col_def={"flex": 1, "minWidth": 100},
                                 resizable=True,

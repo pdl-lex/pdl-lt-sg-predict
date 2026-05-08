@@ -635,8 +635,19 @@ class SachgruppenClassifier:
     @classmethod
     def load(cls, filepath):
         """Load a saved model."""
+        import sachgruppen_classifier as _sc_mod
+
+        class _Unpickler(pickle.Unpickler):
+            def find_class(self, module, name):
+                # Classes pickled as __main__ or __mp_main__ (multiprocessing)
+                # must resolve to their canonical module.
+                if module in ('__main__', '__mp_main__'):
+                    if hasattr(_sc_mod, name):
+                        return getattr(_sc_mod, name)
+                return super().find_class(module, name)
+
         with open(filepath, 'rb') as f:
-            data = pickle.load(f)
+            data = _Unpickler(f).load()
 
         instance = cls(
             model_type=data['model_type'],
