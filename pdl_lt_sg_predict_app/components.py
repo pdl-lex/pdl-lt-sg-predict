@@ -7,9 +7,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _models_dir_env = os.getenv("MODELS_DIR", "")
-_MODELS_DIR = Path(_models_dir_env) if _models_dir_env else Path.home() / ".pdl-sg-predict" / "models"
+_MODELS_DIR = (
+    Path(_models_dir_env)
+    if _models_dir_env
+    else Path.home() / ".pdl-sg-predict" / "models"
+)
 
-ENABLE_TRAINING = os.getenv("ENABLE_TRAINING", "True").strip().lower() in ("1", "true", "yes")
+ENABLE_TRAINING = os.getenv("ENABLE_TRAINING", "True").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 AVAILABLE_MODELS = [
     ("svm", "Linear SVM"),
@@ -22,7 +30,7 @@ AVAILABLE_MODELS = [
 # ============ Design Constants ============
 
 MAX_PAGE_WIDTH = "100%"
-SIDEBAR_WIDTH = ["100%", "100%", "250px"]   # mobile, tablet, desktop (responsive)
+SIDEBAR_WIDTH = ["100%", "100%", "250px"]  # mobile, tablet, desktop (responsive)
 PANEL_PADDING = "20px"
 PANEL_RADIUS = "5px"
 PANEL_BORDER = "1px solid var(--gray-8)"
@@ -32,6 +40,7 @@ HEADING_COLOR = "var(--jade-12)"
 
 
 # ============ Best Model State ============
+
 
 class BestModelState(rx.State):
     """Tracks the best model (by accuracy) and CSV info for the sidebar."""
@@ -69,6 +78,7 @@ class BestModelState(rx.State):
 
 # ============ Navigation ============
 
+
 def sidebar_item(text: str, url: str, icon: str = "chevron-right") -> rx.Component:
     return rx.link(
         rx.hstack(
@@ -94,6 +104,7 @@ def _nav_items() -> list[rx.Component]:
 
 # ============ Mobile Navigation ============
 
+
 class MobileNavState(rx.State):
     """State for the mobile navigation menu."""
 
@@ -114,9 +125,7 @@ def mobile_nav_drawer() -> rx.Component:
     items = []
     for item in _nav_items():
         # Wrap each item to close the dialog on click
-        items.append(
-            rx.box(item, on_click=MobileNavState.close, width="100%")
-        )
+        items.append(rx.box(item, on_click=MobileNavState.close, width="100%"))
     return rx.dialog.root(
         rx.dialog.content(
             rx.vstack(
@@ -151,12 +160,13 @@ def mobile_nav_drawer() -> rx.Component:
 
 # ============ Sidebars ============
 
+
 def sidebar_left() -> rx.Component:
     return rx.vstack(
         rx.heading("MENÜ", size="4", color=HEADING_COLOR, weight="light"),
         *_nav_items(),
         rx.spacer(),
-        rx.text("Version 0.1", size="1", color="gray"),
+        rx.text("Version 0.2", size="1", color="gray"),
         width=SIDEBAR_WIDTH,
         min_width=["auto", "auto", "250px"],
         padding=PANEL_PADDING,
@@ -164,7 +174,11 @@ def sidebar_left() -> rx.Component:
         background_color=PANEL_BG,
         border_radius=PANEL_RADIUS,
         border=PANEL_BORDER,
-        display=["none", "none", "flex"],   # hidden on mobile/tablet → hamburger used instead
+        display=[
+            "none",
+            "none",
+            "flex",
+        ],  # hidden on mobile/tablet → hamburger used instead
     )
 
 
@@ -189,11 +203,13 @@ def sidebar_right() -> rx.Component:
                 rx.text(BestModelState.csv_filename, size="2"),
                 rx.text(
                     BestModelState.csv_num_samples.to_string() + " Samples",
-                    size="2", color="var(--gray-11)",
+                    size="2",
+                    color="var(--gray-11)",
                 ),
                 rx.text(
                     BestModelState.csv_num_classes.to_string() + " Klassen",
-                    size="2", color="var(--gray-11)",
+                    size="2",
+                    color="var(--gray-11)",
                 ),
                 spacing="1",
                 align_items="start",
@@ -223,6 +239,7 @@ def sidebar_right() -> rx.Component:
 
 
 # ============ Base Layout ============
+
 
 def base_layout(content: rx.Component) -> rx.Component:
     """Main layout with header, sidebars and flexible content area."""
@@ -273,7 +290,7 @@ def base_layout(content: rx.Component) -> rx.Component:
                 rx.box(
                     content,
                     flex="1",
-                    min_width="0",      # prevents flex overflow
+                    min_width="0",  # prevents flex overflow
                     padding=PANEL_PADDING,
                     background_color=PANEL_BG,
                     border_radius=PANEL_RADIUS,

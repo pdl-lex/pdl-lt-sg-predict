@@ -24,3 +24,5 @@ wheels/
 *.pkl
 *_metadata.json
 models/
+
+test/
