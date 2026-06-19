@@ -4,6 +4,7 @@ Extrahiert Lemma, Bedeutung und Sachgruppe aus TEI Lex-0 XML-Dateien
 und speichert sie in einer CSV-Datei.
 """
 
+import argparse
 import xml.etree.ElementTree as ET
 import csv
 import os
@@ -106,9 +107,29 @@ def process_single_file(xml_file, output_csv):
     print(f"{len(data)} Einträge aus {xml_file} extrahiert")
     print(f"Daten gespeichert in: {output_csv}")
 
+def main():
+    parser = argparse.ArgumentParser(
+        description='Extrahiert Lemma, Bedeutung und Sachgruppe aus TEI-Lex-0-XML-Dateien '
+                    'in eine CSV-Datei.'
+    )
+    parser.add_argument(
+        'input_dir',
+        help='Verzeichnis mit den TEI-Lex-0-XML-Dateien (wird rekursiv durchsucht), '
+             'z. B. ~/Nextcloud/BAdW/Wörterbuchdaten/bdo-tl0/'
+    )
+    parser.add_argument(
+        '-o', '--output',
+        default='woerterbuch_daten.csv',
+        help='Pfad zur Ausgabe-CSV (Standard: %(default)s)'
+    )
+    args = parser.parse_args()
+
+    input_dir = os.path.expanduser(args.input_dir)
+    if not os.path.isdir(input_dir):
+        parser.error(f"Eingabeverzeichnis existiert nicht: {input_dir}")
+
+    process_directory(input_dir, args.output)
+
+
 if __name__ == '__main__':
-    # Beispiel: Einzelne Datei verarbeiten (für Test)
-    # process_single_file('/mnt/project/Blindgänger.xml', 'test_output.csv')
-    
-    # Für Verzeichnis-Verarbeitung auskommentieren:
-    process_directory('/home/wolfgang/Nextcloud/BAdW/Wörterbuchdaten/bdo-tl0/', 'woerterbuch_daten.csv')
+    main()

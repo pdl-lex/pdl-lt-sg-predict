@@ -1,6 +1,7 @@
 """
 Vorhersage-Seite: PredictionState + SHAP-UI + vorhersage_page.
 """
+import json
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +51,18 @@ class PredictionState(BaseState):
     @rx.var
     def has_model(self) -> bool:
         return bool(self.selected_model_file)
+
+    @rx.var
+    def model_uses_lemma(self) -> bool:
+        """Read use_lemma from the model's metadata JSON (defaults to True if missing)."""
+        if not self.selected_model_file:
+            return True
+        meta_path = MODELS_DIR / self.selected_model_file.replace('.pkl', '_metadata.json')
+        try:
+            data = json.loads(meta_path.read_text(encoding='utf-8'))
+            return bool(data.get('use_lemma', True))
+        except Exception:
+            return True
 
     @rx.var
     def can_predict(self) -> bool:
@@ -649,11 +662,23 @@ def vorhersage_page() -> rx.Component:
                     ),
                     rx.cond(
                         PredictionState.available_models,
-                        rx.select(
-                            PredictionState.available_models,
-                            value=PredictionState.selected_model_file,
-                            on_change=PredictionState.set_selected_model_file
-                        )
+                        rx.vstack(
+                            rx.select(
+                                PredictionState.available_models,
+                                value=PredictionState.selected_model_file,
+                                on_change=PredictionState.set_selected_model_file
+                            ),
+                            rx.cond(
+                                PredictionState.has_model,
+                                rx.cond(
+                                    PredictionState.model_uses_lemma,
+                                    rx.badge("Lemma: genutzt", color_scheme="jade", variant="soft"),
+                                    rx.badge("Lemma: nicht genutzt", color_scheme="gray", variant="soft"),
+                                ),
+                            ),
+                            align_items="start",
+                            spacing="2",
+                        ),
                     ),
                     spacing="3"
                 ),
@@ -811,27 +836,51 @@ def vorhersage_page() -> rx.Component:
                                 width="100%",
                                 align_items="center",
                             ),
-                            ag_grid(
-                                id="batch_results_grid",
-                                row_data=PredictionState.batch_results,
-                                column_defs=[
-                                    ag_grid.column_def(field="lemma", header_name="Lemma", sortable=True, filter=True),
-                                    ag_grid.column_def(field="bedeutung", header_name="Bedeutung", sortable=True, filter=True),
-                                    ag_grid.column_def(field="sachgruppe", header_name="SG 1", sortable=True, filter=True),
-                                    ag_grid.column_def(field="beschreibung", header_name="Beschreibung 1", sortable=True, filter=True),
-                                    ag_grid.column_def(field="wahrscheinlichkeit", header_name="W. 1", sortable=True, filter=True),
-                                    ag_grid.column_def(field="sachgruppe_2", header_name="SG 2", sortable=True, filter=True),
-                                    ag_grid.column_def(field="beschreibung_2", header_name="Beschreibung 2", sortable=True, filter=True),
-                                    ag_grid.column_def(field="wahrscheinlichkeit_2", header_name="W. 2", sortable=True, filter=True),
-                                    ag_grid.column_def(field="sachgruppe_3", header_name="SG 3", sortable=True, filter=True),
-                                    ag_grid.column_def(field="beschreibung_3", header_name="Beschreibung 3", sortable=True, filter=True),
-                                    ag_grid.column_def(field="wahrscheinlichkeit_3", header_name="W. 3", sortable=True, filter=True),
-                                ],
-                                default_col_def={"flex": 1, "minWidth": 100},
-                                resizable=True,
-                                dom_layout="autoHeight",
-                                height="None",
-                                column_size="sizeToFit",
+                            rx.cond(
+                                PredictionState.model_uses_lemma,
+                                ag_grid(
+                                    id="batch_results_grid",
+                                    row_data=PredictionState.batch_results,
+                                    column_defs=[
+                                        ag_grid.column_def(field="lemma", header_name="Lemma", sortable=True, filter=True),
+                                        ag_grid.column_def(field="bedeutung", header_name="Bedeutung", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe", header_name="SG 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung", header_name="Beschreibung 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit", header_name="W. 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe_2", header_name="SG 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung_2", header_name="Beschreibung 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit_2", header_name="W. 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe_3", header_name="SG 3", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung_3", header_name="Beschreibung 3", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit_3", header_name="W. 3", sortable=True, filter=True),
+                                    ],
+                                    default_col_def={"flex": 1, "minWidth": 100},
+                                    resizable=True,
+                                    dom_layout="autoHeight",
+                                    height="None",
+                                    column_size="sizeToFit",
+                                ),
+                                ag_grid(
+                                    id="batch_results_grid",
+                                    row_data=PredictionState.batch_results,
+                                    column_defs=[
+                                        ag_grid.column_def(field="bedeutung", header_name="Bedeutung", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe", header_name="SG 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung", header_name="Beschreibung 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit", header_name="W. 1", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe_2", header_name="SG 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung_2", header_name="Beschreibung 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit_2", header_name="W. 2", sortable=True, filter=True),
+                                        ag_grid.column_def(field="sachgruppe_3", header_name="SG 3", sortable=True, filter=True),
+                                        ag_grid.column_def(field="beschreibung_3", header_name="Beschreibung 3", sortable=True, filter=True),
+                                        ag_grid.column_def(field="wahrscheinlichkeit_3", header_name="W. 3", sortable=True, filter=True),
+                                    ],
+                                    default_col_def={"flex": 1, "minWidth": 100},
+                                    resizable=True,
+                                    dom_layout="autoHeight",
+                                    height="None",
+                                    column_size="sizeToFit",
+                                ),
                             ),
                             spacing="3",
                             width="100%"

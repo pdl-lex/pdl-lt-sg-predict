@@ -15,14 +15,24 @@ wheels/
 
 # Claude Code
 .claude
+CLAUDE.md
 
 # Reflex (App)
 .web
 .states
+reflex_err.log
+reflex.log
 
 # ML-Modelle (zu groß für Git, per FTP auf Server laden)
 *.pkl
 *_metadata.json
 models/
-
 test/
+
+# Ongoging Analysis
+benchmark_dornseiff.py
+benchmark_embeddings.py
+benchmark_spacy.py
+confusion_pairs.py
+overlap_candidates.py
+taxonomie_ueberlapp_kandidaten.md

@@ -80,6 +80,7 @@ class AnalysisState(BaseState):
                 test_size_raw = metadata.get("test_size", None)
                 test_size_str = f"{test_size_raw * 100:.0f}%" if test_size_raw is not None else "–"
                 stopwords_str = "ja" if metadata.get("remove_stopwords", False) else "nein"
+                use_lemma_str = "ja" if metadata.get("use_lemma", True) else "nein"
 
                 min_len = metadata.get("min_word_length", 1)
                 min_len_str = f"≥ {min_len}" if min_len > 1 else "1 (alle)"
@@ -103,6 +104,7 @@ class AnalysisState(BaseState):
                     "num_classes": metadata.get("num_classes", 0),
                     "test_size": test_size_str,
                     "stopwords_removed": stopwords_str,
+                    "use_lemma": use_lemma_str,
                     "min_word_len": min_len_str,
                     "analyzer": analyzer_str,
                     "has_report": report_file.exists(),
@@ -159,6 +161,7 @@ def analyse_page() -> rx.Component:
         ag_grid.column_def(field="num_classes", header_name="Classes", sortable=True, filter=True),
         ag_grid.column_def(field="test_size", header_name="Test-Split", sortable=True, filter=True),
         ag_grid.column_def(field="stopwords_removed", header_name="Stopwords entf.", sortable=True, filter=True),
+        ag_grid.column_def(field="use_lemma", header_name="Lemma genutzt", sortable=True, filter=True),
         ag_grid.column_def(field="min_word_len", header_name="Min. Wortlänge", sortable=True, filter=True),
         ag_grid.column_def(field="analyzer", header_name="Analyzer", sortable=True, filter=True),
     ]

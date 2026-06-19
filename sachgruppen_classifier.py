@@ -20,6 +20,15 @@ import argparse
 from datetime import datetime
 from tqdm import tqdm
 import os
+import sys
+
+# Force UTF-8 on stdout/stderr so Unicode (e.g. "→") prints work even when the
+# subprocess inherits a legacy code page (cp1252 on Windows).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, RandomizedSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -186,7 +195,8 @@ class SachgruppenClassifier:
         self.label_encoder = None  # XGBoost only: string → integer encoding
         self.best_params_: dict = {}   # Best params after auto-tune (empty if not tuned)
         self.best_cv_score_: float = 0.0
-        
+        self.eval_metrics_: dict = {}  # Top-k / hierarchy / confidence (set by evaluate())
+
     def create_pipeline(self):
         """Build the ML pipeline."""
 
@@ -517,6 +527,15 @@ class SachgruppenClassifier:
         accuracy = accuracy_score(y_test, y_pred)
         report_str = classification_report(y_test, y_pred, zero_division=0)
 
+        # Top-k, hierarchical and confidence/coverage metrics.
+        # Computed on the (possibly filtered) X_test/y_test so they align with y_pred.
+        try:
+            self.eval_metrics_ = self._extended_metrics(X_test, y_test)
+            report_str = report_str + "\n\n" + self._format_extended_metrics(self.eval_metrics_)
+        except Exception as e:
+            print(f"Warning: extended metrics skipped ({e})")
+            self.eval_metrics_ = {}
+
         if verbose:
             print("\n" + "="*60)
             print("EVALUATION")
@@ -526,6 +545,75 @@ class SachgruppenClassifier:
             print(report_str)
 
         return accuracy, y_pred, report_str
+
+    def _extended_metrics(self, X_test, y_test, ks=(1, 3, 5), group_len=2):
+        """Top-k accuracy, hierarchical (group) accuracy and a confidence/coverage curve.
+
+        Uses predict_proba when available, otherwise decision_function (SVM), so
+        it works for every model type. The group accuracy compares the first
+        ``group_len`` digits of the Sachgruppen code (e.g. 2 = Zweisteller-Gruppe).
+        """
+        y_true = np.asarray(y_test).astype(str)
+        classifier = self.pipeline.named_steps['classifier']
+        classes = classifier.classes_
+        if self.label_encoder is not None:  # XGBoost/NN: integer → original string
+            classes = self.label_encoder.inverse_transform(classes)
+        classes = np.asarray(classes).astype(str)
+
+        scores = None
+        if self.model_type != 'svm' and hasattr(self.pipeline, 'predict_proba'):
+            try:
+                scores = np.asarray(self.pipeline.predict_proba(X_test), dtype=float)
+            except Exception:
+                scores = None
+        if scores is None:
+            scores = np.asarray(self.pipeline.decision_function(X_test), dtype=float)
+        if scores.ndim == 1:  # binary decision_function safety
+            scores = np.column_stack([-scores, scores])
+
+        order = np.argsort(scores, axis=1)[:, ::-1]
+        ranked = classes[order]
+        pred1 = ranked[:, 0]
+
+        metrics = {}
+        for k in ks:
+            metrics[f'top{k}'] = float((ranked[:, :k] == y_true[:, None]).any(axis=1).mean())
+
+        grp_pred = np.array([s[:group_len] for s in pred1])
+        grp_true = np.array([s[:group_len] for s in y_true])
+        metrics['group_acc'] = float((grp_pred == grp_true).mean())
+        metrics['group_len'] = group_len
+
+        # Confidence = margin between best and second-best score; accept the most
+        # confident predictions first and report Top-1 accuracy on that subset.
+        sorted_scores = np.sort(scores, axis=1)[:, ::-1]
+        margin = sorted_scores[:, 0] - sorted_scores[:, 1]
+        correct1 = (pred1 == y_true)
+        conf_order = np.argsort(margin)[::-1]
+        correct_sorted = correct1[conf_order]
+        n = len(correct_sorted)
+        metrics['coverage'] = {
+            f'{int(c * 100)}%': float(correct_sorted[:max(1, int(n * c))].mean())
+            for c in (0.5, 0.7, 0.9)
+        }
+        return metrics
+
+    @staticmethod
+    def _format_extended_metrics(m: dict) -> str:
+        """Render the extended metrics dict as a text block for the report file."""
+        if not m:
+            return ""
+        lines = [
+            "=" * 60,
+            "TOP-k / HIERARCHIE / KONFIDENZ",
+            "=" * 60,
+            f"Top-1: {m['top1']:.4f}   Top-3: {m['top3']:.4f}   Top-5: {m['top5']:.4f}",
+            f"Richtige {m['group_len']}-stellige Gruppe (Top-1): {m['group_acc']:.4f}",
+            "Konfidenz/Abdeckung (Top-1 automatisch akzeptieren):",
+        ]
+        for cov, acc in m['coverage'].items():
+            lines.append(f"  {cov:>4} Abdeckung  ->  {acc:.4f} Accuracy")
+        return "\n".join(lines)
     
     def cross_validate(self, X, y, cv=5):
         """Run cross-validation."""
@@ -679,6 +767,7 @@ class SachgruppenClassifier:
 
 def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        tune=False, save_path=None, use_gpu=False,
+                       use_lemma=True,
                        remove_stopwords=False, min_word_length=1,
                        analyzer='char_wb', word_ngram_max=1,
                        use_word_features=True, use_svd=False, svd_components=500,
@@ -702,7 +791,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     # Load data
     _cb(5, "Lade Daten…")
     print(f"Loading data from {csv_file}...")
-    df = pd.read_csv(csv_file)
+    df = pd.read_csv(csv_file, sep=None, engine="python")
+    df.columns = [c.lstrip('﻿').strip() for c in df.columns]
 
     print(f"\nDataset info:")
     print(f"  Entries: {len(df)}")
@@ -717,14 +807,28 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     _cb(15, "Bereinige Daten…")
     print("\nCleaning data...")
 
-    nan_counts = df[['lemma', 'bedeutung', 'sachgruppe']].isna().sum()
+    # Auto-detect: disable use_lemma if the lemma column is missing or entirely empty
+    if use_lemma:
+        if 'lemma' not in df.columns:
+            print("Info: Spalte 'lemma' nicht vorhanden – use_lemma automatisch deaktiviert.")
+            use_lemma = False
+        else:
+            real_lemmata = df['lemma'].dropna().astype(str).str.strip()
+            real_lemmata = real_lemmata[real_lemmata.str.len() > 0]
+            if real_lemmata.empty:
+                print("Info: Lemma-Spalte leer – use_lemma automatisch deaktiviert.")
+                use_lemma = False
+
+    required_cols = (['lemma', 'bedeutung', 'sachgruppe'] if use_lemma
+                     else ['bedeutung', 'sachgruppe'])
+    nan_counts = df[required_cols].isna().sum()
     if nan_counts.any():
         print("NaN values found:")
         for col, count in nan_counts.items():
             if count > 0:
                 print(f"  {col}: {count}")
 
-    df_clean = df.dropna(subset=['lemma', 'bedeutung', 'sachgruppe'])
+    df_clean = df.dropna(subset=required_cols)
 
     removed = len(df) - len(df_clean)
     if removed > 0:
@@ -732,11 +836,14 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         print(f"Remaining: {len(df_clean)} entries")
 
     # Replace empty strings with placeholder
-    df_clean['lemma'] = df_clean['lemma'].astype(str).replace('', 'LEER')
+    if use_lemma:
+        df_clean = df_clean.copy()
+        df_clean['lemma'] = df_clean['lemma'].astype(str).replace('', 'LEER')
     df_clean['bedeutung'] = df_clean['bedeutung'].astype(str).replace('', 'LEER')
 
-    # Train/test split; X is a DataFrame with both columns
-    X = df_clean[['lemma', 'bedeutung']]
+    # Train/test split; X is a DataFrame with the relevant columns
+    x_cols = ['lemma', 'bedeutung'] if use_lemma else ['bedeutung']
+    X = df_clean[x_cols]
     y = df_clean['sachgruppe'].astype(str)
 
     # Stratified split with special handling for rare classes
@@ -799,6 +906,7 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     _cb(35, f"Trainiere {model_type.upper()}-Modell ({len(y_train)} Samples, {y.nunique()} Klassen)…")
     clf = SachgruppenClassifier(
         model_type=model_type, use_gpu=use_gpu,
+        use_lemma=use_lemma,
         remove_stopwords=remove_stopwords,
         min_word_length=min_word_length,
         analyzer=analyzer,
@@ -1141,9 +1249,11 @@ if __name__ == '__main__':
                 "training_time": training_time,
                 "num_samples": num_samples,
                 "num_classes": len(clf.classes_) if clf.classes_ is not None else 0,
+                "topk_metrics": getattr(clf, 'eval_metrics_', {}),
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "csv_file": args.csv,
                 "test_size": args.test_size,
+                "use_lemma": clf.use_lemma,
                 "remove_stopwords": sw,
                 "min_word_length": min_len,
                 "analyzer": analyzer,

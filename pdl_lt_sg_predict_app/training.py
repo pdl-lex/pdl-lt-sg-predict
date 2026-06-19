@@ -208,10 +208,11 @@ class TrainingState(BaseState):
             # Validate CSV structure
             try:
                 df = pd.read_csv(file_path, sep=None, engine="python")
+                df.columns = [c.lstrip('﻿').strip() for c in df.columns]
 
-                required_cols = ['lemma', 'bedeutung', 'sachgruppe']
+                required_cols = ['bedeutung', 'sachgruppe']
                 if not all(col in df.columns for col in required_cols):
-                    self.upload_error = f"CSV muss Spalten enthalten: {', '.join(required_cols)}"
+                    self.upload_error = f"CSV muss Spalten enthalten: {', '.join(required_cols)} (Spalte 'lemma' optional)"
                     return
 
                 self.uploaded_filename = safe_filename
