@@ -12,6 +12,9 @@ Features:
 - Prediction interface
 """
 
+import collections
+import re
+
 import pandas as pd
 import numpy as np
 import pickle
@@ -120,6 +123,124 @@ class MinLengthFilter(BaseEstimator, TransformerMixin):
                 )
         return result
 
+_DORNSEIFF_GAZ = Path(__file__).resolve().parent / "assets" / "dornseiff_gaz_cache.pkl"
+
+
+def _load_dornseiff_gazetteer() -> dict:
+    """Lädt den vorberechneten Dornseiff-Gazetteer (assets/dornseiff_gaz_cache.pkl)."""
+    if not _DORNSEIFF_GAZ.exists():
+        raise FileNotFoundError(
+            f"Dornseiff-Gazetteer nicht gefunden: {_DORNSEIFF_GAZ}\n"
+            f"Datei aus dem Repo-Assets abrufen oder mit _extract_dornseiff.py neu erzeugen."
+        )
+    print(f"  Dornseiff-Gazetteer geladen ({_DORNSEIFF_GAZ.name})")
+    with open(_DORNSEIFF_GAZ, "rb") as f:
+        return pickle.load(f)
+
+
+class SpacyVectorizer(BaseEstimator, TransformerMixin):
+    """Dense 300-dim spaCy word vectors (de_core_news_lg), L2-normalised.
+
+    Loaded lazily so the nlp object is never pickled — only the class name
+    is needed to reload it on the next transform() call.
+    """
+
+    SPACY_MODEL = "de_core_news_lg"
+
+    def __init__(self):
+        self._nlp = None
+
+    def fit(self, X, y=None):
+        return self
+
+    def _get_nlp(self):
+        if self._nlp is None:
+            import spacy
+            self._nlp = spacy.load(
+                self.SPACY_MODEL,
+                disable=["tagger", "parser", "ner", "lemmatizer",
+                         "attribute_ruler", "morphologizer", "tok2vec"],
+            )
+        return self._nlp
+
+    def transform(self, X):
+        from scipy.sparse import csr_matrix
+        nlp = self._get_nlp()
+        texts = [str(x) for x in X]
+        vecs = np.zeros((len(texts), nlp.vocab.vectors_length), dtype=np.float32)
+        for i, doc in enumerate(nlp.pipe(texts, batch_size=512)):
+            v = doc.vector
+            n = np.linalg.norm(v)
+            if n > 0:
+                vecs[i] = v / n
+        return csr_matrix(vecs)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_nlp"] = None
+        return state
+
+
+class DornseiffVectorizer(BaseEstimator, TransformerMixin):
+    """TF-IDF over Dornseiff group codes present in each text.
+
+    Gazetteer (word → groups) loaded from assets/dornseiff_gaz_cache.pkl.
+    Texts are lemmatised with de_core_news_lg before lookup so inflected
+    forms (e.g. "kocht" → "kochen", "warmen" → "warm") are matched.
+    The fitted gazetteer and internal TfidfVectorizer are fully picklable;
+    the nlp object is excluded from pickling and reloaded lazily.
+    """
+
+    SPACY_MODEL = "de_core_news_lg"
+    # keep tok2vec + morphologizer + attribute_ruler + lemmatizer
+    _SPACY_DISABLE = ["parser", "senter", "ner"]
+
+    def __init__(self):
+        self._gazetteer: dict | None = None
+        self._tfidf = None
+        self._nlp = None
+
+    def _get_nlp(self):
+        if self._nlp is None:
+            import spacy
+            self._nlp = spacy.load(self.SPACY_MODEL, disable=self._SPACY_DISABLE)
+        return self._nlp
+
+    def _lemmatize_batch(self, texts: list[str]) -> list[list[str]]:
+        nlp = self._get_nlp()
+        result = []
+        for doc in nlp.pipe(texts, batch_size=512):
+            result.append([
+                t.lemma_.lower() for t in doc
+                if t.is_alpha and len(t.lemma_) >= 3
+            ])
+        return result
+
+    def _codes_for_lemmas(self, lemmas: list[str]) -> list[str]:
+        out = []
+        for lemma in lemmas:
+            for g in self._gazetteer.get(lemma, ()):
+                out.append(g)
+        return out
+
+    def fit(self, X, y=None):
+        from sklearn.feature_extraction.text import TfidfVectorizer as _TV
+        self._gazetteer = _load_dornseiff_gazetteer()
+        lemma_lists = self._lemmatize_batch([str(x) for x in X])
+        self._tfidf = _TV(analyzer=self._codes_for_lemmas, sublinear_tf=True)
+        self._tfidf.fit(lemma_lists)
+        return self
+
+    def transform(self, X):
+        lemma_lists = self._lemmatize_batch([str(x) for x in X])
+        return self._tfidf.transform(lemma_lists)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_nlp"] = None
+        return state
+
+
 try:
     import xgboost as xgb
     HAS_XGBOOST = True
@@ -141,6 +262,8 @@ class SachgruppenClassifier:
                  use_word_features: bool = True,
                  use_svd: bool = False,
                  svd_components: int = 500,
+                 use_spacy: bool = False,
+                 use_dornseiff: bool = False,
                  svm_c: float = 1.0,
                  xgb_n_estimators: int = 300,
                  xgb_max_depth: int = 6,
@@ -162,6 +285,8 @@ class SachgruppenClassifier:
             use_word_features: Extra word-level branch for bedeutung (char_wb mode only)
             use_svd: Enable TruncatedSVD (LSA) after vectorization (recommended for XGBoost only)
             svd_components: Number of SVD dimensions (only relevant when use_svd=True)
+            use_spacy: Add de_core_news_lg 300-dim word vectors on top of TF-IDF (+0.6 pp Top-1)
+            use_dornseiff: Add Dornseiff gazetteer TF-IDF features on top of TF-IDF (+0.3 pp Top-1); loads from assets/dornseiff_gaz_cache.pkl
             svm_c: Regularization parameter C for LinearSVC (default: 1.0)
             xgb_n_estimators: Number of trees for XGBoost (default: 300)
             xgb_max_depth: Maximum tree depth for XGBoost (default: 6)
@@ -182,6 +307,8 @@ class SachgruppenClassifier:
         self.use_word_features = use_word_features
         self.use_svd = use_svd
         self.svd_components = svd_components
+        self.use_spacy = use_spacy
+        self.use_dornseiff = use_dornseiff
         self.svm_c = svm_c
         self.xgb_n_estimators = xgb_n_estimators
         self.xgb_max_depth = xgb_max_depth
@@ -245,12 +372,17 @@ class SachgruppenClassifier:
                     sublinear_tf=True,
                 )
                 transformers.append(('bedeutung_word', bedeutung_word_vectorizer, 'bedeutung'))
-            vectorizer = ColumnTransformer(transformers)
         else:
             # Bedeutung only (legacy mode)
-            vectorizer = ColumnTransformer([
-                ('bedeutung', bedeutung_vectorizer, 'bedeutung')
-            ])
+            transformers = [('bedeutung', bedeutung_vectorizer, 'bedeutung')]
+
+        # Semantic enrichment add-ons (both append to transformers regardless of use_lemma)
+        if self.use_spacy:
+            transformers.append(('spacy_bed', SpacyVectorizer(), 'bedeutung'))
+        if self.use_dornseiff:
+            transformers.append(('dornseiff', DornseiffVectorizer(), 'bedeutung'))
+
+        vectorizer = ColumnTransformer(transformers)
         
         # Model selection
         if self.model_type == 'svm':
@@ -771,6 +903,7 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        remove_stopwords=False, min_word_length=1,
                        analyzer='char_wb', word_ngram_max=1,
                        use_word_features=True, use_svd=False, svd_components=500,
+                       use_spacy=False, use_dornseiff=False,
                        svm_c=1.0, xgb_n_estimators=300, xgb_max_depth=6,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
                        nn_hidden_layer_sizes=(200, 100, 50), nn_alpha=0.0001,
@@ -914,6 +1047,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         use_word_features=use_word_features,
         use_svd=use_svd,
         svd_components=svd_components,
+        use_spacy=use_spacy,
+        use_dornseiff=use_dornseiff,
         svm_c=svm_c,
         xgb_n_estimators=xgb_n_estimators,
         xgb_max_depth=xgb_max_depth,
@@ -1120,6 +1255,12 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', action='store_true',
                         help='GPU acceleration for XGBoost (requires CUDA/ROCm)')
 
+    # --- Semantic enrichment ---
+    parser.add_argument('--use-spacy', action='store_true',
+                        help='Add de_core_news_lg 300-dim word vectors on top of TF-IDF')
+    parser.add_argument('--use-dornseiff', action='store_true',
+                        help='Add Dornseiff gazetteer TF-IDF features on top of TF-IDF (loads assets/dornseiff_gaz_cache.pkl)')
+
     # --- Internal options (web app) ---
     parser.add_argument('--progress-file', type=str, default='',
                         metavar='PATH',
@@ -1222,6 +1363,8 @@ if __name__ == '__main__':
                     min_word_length=min_len,
                     analyzer=analyzer,
                     word_ngram_max=args.word_ngram_max,
+                    use_spacy=args.use_spacy,
+                    use_dornseiff=args.use_dornseiff,
                     svm_c=args.svm_c,
                     xgb_n_estimators=args.xgb_n_estimators,
                     xgb_max_depth=args.xgb_max_depth,
@@ -1254,6 +1397,8 @@ if __name__ == '__main__':
                 "csv_file": args.csv,
                 "test_size": args.test_size,
                 "use_lemma": clf.use_lemma,
+                "use_spacy": args.use_spacy,
+                "use_dornseiff": args.use_dornseiff,
                 "remove_stopwords": sw,
                 "min_word_length": min_len,
                 "analyzer": analyzer,

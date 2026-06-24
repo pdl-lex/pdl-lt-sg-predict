@@ -1,6 +1,7 @@
 """
 Training-Seite: TrainingState + training_page.
 """
+
 import asyncio
 import json
 import math
@@ -25,6 +26,7 @@ from .components import base_layout, ENABLE_TRAINING, BestModelState
 
 class TrainingState(BaseState):
     """State for model training."""
+
     # File upload
     uploaded_filename: str = ""
     upload_error: str = ""
@@ -35,11 +37,11 @@ class TrainingState(BaseState):
     test_size: float = 0.2
     use_stopword_removal: bool = False
     min_word_length: int = 1
-    analyzer_mode: str = "char_wb"   # "char_wb" or "word"
-    word_ngram_max: int = 1          # 1=(1,1), 2=(1,2) — word analyzer only
+    analyzer_mode: str = "char_wb"  # "char_wb" or "word"
+    word_ngram_max: int = 1  # 1=(1,1), 2=(1,2) — word analyzer only
 
     # Hyperparameter tuning config
-    tune_mode: str = "standard"      # "standard", "auto", "manual"
+    tune_mode: str = "standard"  # "standard", "auto", "manual"
     tune_n_iter_str: str = "20"
     tune_cv_str: str = "3"
     svm_c_str: str = "1.0"
@@ -51,9 +53,13 @@ class TrainingState(BaseState):
     nn_alpha_str: str = "0.0001"
     nn_learning_rate_init_str: str = "0.001"
 
+    # Semantic enrichment
+    use_spacy: bool = False
+    use_dornseiff: bool = False
+
     # Batch training config
     batch_model_types: list[str] = ["svm"]
-    batch_use_stopwords: list[bool] = [False]   # [False], [True], or [False, True]
+    batch_use_stopwords: list[bool] = [False]  # [False], [True], or [False, True]
     batch_min_lengths: list[int] = [1]
     batch_analyzers: list[str] = ["char_wb"]
 
@@ -77,7 +83,7 @@ class TrainingState(BaseState):
     accuracy: float = 0.0
     training_time: float = 0.0
     saved_model_path: str = ""
-    best_params_str: str = ""    # Best params after auto-tune (empty for standard/manual)
+    best_params_str: str = ""  # Best params after auto-tune (empty for standard/manual)
     best_cv_score: float = 0.0
 
     # Data info
@@ -186,7 +192,7 @@ class TrainingState(BaseState):
             file = files[0]
 
             # Check file type
-            if not file.filename.lower().endswith('.csv'):
+            if not file.filename.lower().endswith(".csv"):
                 self.upload_error = "Nur CSV-Dateien erlaubt"
                 return
 
@@ -199,7 +205,9 @@ class TrainingState(BaseState):
 
             # Size check
             if len(content) > MAX_FILE_SIZE:
-                self.upload_error = f"Datei zu groß (max {MAX_FILE_SIZE / 1024 / 1024:.0f}MB)"
+                self.upload_error = (
+                    f"Datei zu groß (max {MAX_FILE_SIZE / 1024 / 1024:.0f}MB)"
+                )
                 return
 
             with open(file_path, "wb") as f:
@@ -208,18 +216,20 @@ class TrainingState(BaseState):
             # Validate CSV structure
             try:
                 df = pd.read_csv(file_path, sep=None, engine="python")
-                df.columns = [c.lstrip('﻿').strip() for c in df.columns]
+                df.columns = [c.lstrip("﻿").strip() for c in df.columns]
 
-                required_cols = ['bedeutung', 'sachgruppe']
+                required_cols = ["bedeutung", "sachgruppe"]
                 if not all(col in df.columns for col in required_cols):
                     self.upload_error = f"CSV muss Spalten enthalten: {', '.join(required_cols)} (Spalte 'lemma' optional)"
                     return
 
                 self.uploaded_filename = safe_filename
                 self.total_samples = len(df)
-                self.num_classes = df['sachgruppe'].nunique()
+                self.num_classes = df["sachgruppe"].nunique()
                 self._refresh_time_estimates()
-                yield BestModelState.set_csv_info(safe_filename, self.total_samples, self.num_classes)
+                yield BestModelState.set_csv_info(
+                    safe_filename, self.total_samples, self.num_classes
+                )
 
             except Exception as e:
                 self.upload_error = f"Fehler beim Lesen der CSV: {str(e)}"
@@ -247,7 +257,9 @@ class TrainingState(BaseState):
         if not models_dir.exists() or self.total_samples == 0:
             return
         # Find most recent measurement per type (highest timestamp wins)
-        best: dict[str, tuple[str, float, int]] = {}  # type → (timestamp, time, samples)
+        best: dict[
+            str, tuple[str, float, int]
+        ] = {}  # type → (timestamp, time, samples)
         for mf in models_dir.glob("*_metadata.json"):
             try:
                 with open(mf) as f:
@@ -293,17 +305,35 @@ class TrainingState(BaseState):
         }
         return mapping.get(self.tune_mode, "Standard-Werte")
 
-    def set_tune_n_iter_str(self, v: str): self.tune_n_iter_str = v
-    def set_tune_cv_str(self, v: str): self.tune_cv_str = v
+    def set_tune_n_iter_str(self, v: str):
+        self.tune_n_iter_str = v
 
-    def set_svm_c_str(self, v: str): self.svm_c_str = v
-    def set_xgb_n_estimators_str(self, v: str): self.xgb_n_estimators_str = v
-    def set_xgb_max_depth_str(self, v: str): self.xgb_max_depth_str = v
-    def set_xgb_learning_rate_str(self, v: str): self.xgb_learning_rate_str = v
-    def set_xgb_subsample_str(self, v: str): self.xgb_subsample_str = v
-    def set_nn_hidden_layers_str(self, v: str): self.nn_hidden_layers_str = v
-    def set_nn_alpha_str(self, v: str): self.nn_alpha_str = v
-    def set_nn_learning_rate_init_str(self, v: str): self.nn_learning_rate_init_str = v
+    def set_tune_cv_str(self, v: str):
+        self.tune_cv_str = v
+
+    def set_svm_c_str(self, v: str):
+        self.svm_c_str = v
+
+    def set_xgb_n_estimators_str(self, v: str):
+        self.xgb_n_estimators_str = v
+
+    def set_xgb_max_depth_str(self, v: str):
+        self.xgb_max_depth_str = v
+
+    def set_xgb_learning_rate_str(self, v: str):
+        self.xgb_learning_rate_str = v
+
+    def set_xgb_subsample_str(self, v: str):
+        self.xgb_subsample_str = v
+
+    def set_nn_hidden_layers_str(self, v: str):
+        self.nn_hidden_layers_str = v
+
+    def set_nn_alpha_str(self, v: str):
+        self.nn_alpha_str = v
+
+    def set_nn_learning_rate_init_str(self, v: str):
+        self.nn_learning_rate_init_str = v
 
     # ---- Batch configuration ----
 
@@ -311,7 +341,9 @@ class TrainingState(BaseState):
         """Add or remove a model type from the batch list."""
         if model_type in self.batch_model_types:
             if len(self.batch_model_types) > 1:
-                self.batch_model_types = [m for m in self.batch_model_types if m != model_type]
+                self.batch_model_types = [
+                    m for m in self.batch_model_types if m != model_type
+                ]
         else:
             self.batch_model_types = self.batch_model_types + [model_type]
 
@@ -319,7 +351,9 @@ class TrainingState(BaseState):
         """Toggle a True/False value in batch_use_stopwords."""
         if value in self.batch_use_stopwords:
             if len(self.batch_use_stopwords) > 1:
-                self.batch_use_stopwords = [v for v in self.batch_use_stopwords if v != value]
+                self.batch_use_stopwords = [
+                    v for v in self.batch_use_stopwords if v != value
+                ]
         else:
             self.batch_use_stopwords = self.batch_use_stopwords + [value]
 
@@ -327,7 +361,9 @@ class TrainingState(BaseState):
         """Add or remove a minimum word length from the batch list."""
         if length in self.batch_min_lengths:
             if len(self.batch_min_lengths) > 1:
-                self.batch_min_lengths = [l for l in self.batch_min_lengths if l != length]
+                self.batch_min_lengths = [
+                    l for l in self.batch_min_lengths if l != length
+                ]
         else:
             self.batch_min_lengths = sorted(self.batch_min_lengths + [length])
 
@@ -335,7 +371,9 @@ class TrainingState(BaseState):
         """Add or remove an analyzer from the batch list."""
         if analyzer in self.batch_analyzers:
             if len(self.batch_analyzers) > 1:
-                self.batch_analyzers = [a for a in self.batch_analyzers if a != analyzer]
+                self.batch_analyzers = [
+                    a for a in self.batch_analyzers if a != analyzer
+                ]
         else:
             self.batch_analyzers = self.batch_analyzers + [analyzer]
 
@@ -382,44 +420,77 @@ class TrainingState(BaseState):
             )
             # Auto-tune takes significantly longer
             if _tune:
-                _estimated_train_sec = _estimated_train_sec * max(_tune_n_iter * _tune_cv / 5, 1.0)
+                _estimated_train_sec = _estimated_train_sec * max(
+                    _tune_n_iter * _tune_cv / 5, 1.0
+                )
             _estimated_fit_sec = max(_estimated_train_sec * 0.70, 1.0)
 
             # Progress file: subprocess writes progress, we read it
             progress_file = session_path / "training_progress.json"
-            progress_file.write_text('{"pct": 0, "msg": "Starte…", "done": false, "error": ""}')
+            progress_file.write_text(
+                '{"pct": 0, "msg": "Starte…", "done": false, "error": ""}'
+            )
 
             # Path to the classifier script (project root, one level above this module)
-            classifier_script = Path(__file__).parent.parent / "sachgruppen_classifier.py"
+            classifier_script = (
+                Path(__file__).parent.parent / "sachgruppen_classifier.py"
+            )
 
             cmd = [
-                sys.executable, str(classifier_script),
-                "--csv", str(csv_path),
-                "--model", self.selected_model,
-                "--test-size", str(self.test_size),
-                "--analyzer", self.analyzer_mode,
-                "--word-ngram-max", str(word_ngram_max),
-                "--min-length", str(self.min_word_length),
-                "--stopwords", "true" if self.use_stopword_removal else "false",
-                "--svm-c", self.svm_c_str,
-                "--xgb-n-estimators", self.xgb_n_estimators_str,
-                "--xgb-max-depth", self.xgb_max_depth_str,
-                "--xgb-learning-rate", self.xgb_learning_rate_str,
-                "--xgb-subsample", self.xgb_subsample_str,
-                "--nn-hidden-layers", self.nn_hidden_layers_str,
-                "--nn-alpha", self.nn_alpha_str,
-                "--nn-learning-rate-init", self.nn_learning_rate_init_str,
-                "--output-dir", str(MODELS_DIR),
-                "--progress-file", str(progress_file),
+                sys.executable,
+                str(classifier_script),
+                "--csv",
+                str(csv_path),
+                "--model",
+                self.selected_model,
+                "--test-size",
+                str(self.test_size),
+                "--analyzer",
+                self.analyzer_mode,
+                "--word-ngram-max",
+                str(word_ngram_max),
+                "--min-length",
+                str(self.min_word_length),
+                "--stopwords",
+                "true" if self.use_stopword_removal else "false",
+                "--svm-c",
+                self.svm_c_str,
+                "--xgb-n-estimators",
+                self.xgb_n_estimators_str,
+                "--xgb-max-depth",
+                self.xgb_max_depth_str,
+                "--xgb-learning-rate",
+                self.xgb_learning_rate_str,
+                "--xgb-subsample",
+                self.xgb_subsample_str,
+                "--nn-hidden-layers",
+                self.nn_hidden_layers_str,
+                "--nn-alpha",
+                self.nn_alpha_str,
+                "--nn-learning-rate-init",
+                self.nn_learning_rate_init_str,
+                "--output-dir",
+                str(MODELS_DIR),
+                "--progress-file",
+                str(progress_file),
             ]
             if _tune:
-                cmd += ["--tune",
-                        "--tune-n-iter", str(_tune_n_iter),
-                        "--tune-cv", str(_tune_cv)]
+                cmd += [
+                    "--tune",
+                    "--tune-n-iter",
+                    str(_tune_n_iter),
+                    "--tune-cv",
+                    str(_tune_cv),
+                ]
+            if self.use_spacy:
+                cmd.append("--use-spacy")
+            if self.use_dornseiff:
+                cmd.append("--use-dornseiff")
 
             start_time = time.time()
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True)
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
 
             # Poll progress and forward to UI
             fit_started_at = None
@@ -427,7 +498,7 @@ class TrainingState(BaseState):
                 await asyncio.sleep(0.4)
                 try:
                     prog = json.loads(progress_file.read_text())
-                except (OSError, json.JSONDecodeError):
+                except OSError, json.JSONDecodeError:
                     prog = {}
 
                 phase_pct = prog.get("pct", 0)
@@ -460,7 +531,7 @@ class TrainingState(BaseState):
 
             try:
                 prog = json.loads(progress_file.read_text())
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 raise RuntimeError("Progress file not readable after training.")
 
             if prog.get("error"):
@@ -475,7 +546,9 @@ class TrainingState(BaseState):
             self.saved_model_path = Path(model_file).name if model_file else ""
 
             # Read best params from metadata JSON
-            meta_path = model_file.replace(".pkl", "_metadata.json") if model_file else ""
+            meta_path = (
+                model_file.replace(".pkl", "_metadata.json") if model_file else ""
+            )
             self.best_params_str = ""
             self.best_cv_score = 0.0
             if meta_path and Path(meta_path).exists():
@@ -484,13 +557,16 @@ class TrainingState(BaseState):
                     best_params = meta.get("best_params", {})
                     self.best_cv_score = meta.get("best_cv_score", 0.0)
                     if best_params:
+
                         def _shorten(k: str) -> str:
                             parts = k.split("__")
                             return " ".join(parts[1:]) if len(parts) > 1 else k
+
                         self.best_params_str = "  ·  ".join(
-                            f"{_shorten(k)} = {v}" for k, v in sorted(best_params.items())
+                            f"{_shorten(k)} = {v}"
+                            for k, v in sorted(best_params.items())
                         )
-                except (OSError, json.JSONDecodeError):
+                except OSError, json.JSONDecodeError:
                     pass
 
             self.training_progress = "✓ Training abgeschlossen!"
@@ -500,6 +576,7 @@ class TrainingState(BaseState):
         except Exception as e:
             self.training_error = f"Training-Fehler: {str(e)}"
             import traceback
+
             traceback.print_exc()
         finally:
             self.is_training = False
@@ -517,8 +594,12 @@ class TrainingState(BaseState):
 
         # Pre-compute configuration count for the UI
         sw_vals = self.batch_use_stopwords
-        total = (len(self.batch_model_types) * len(sw_vals)
-                 * len(self.batch_min_lengths) * len(self.batch_analyzers))
+        total = (
+            len(self.batch_model_types)
+            * len(sw_vals)
+            * len(self.batch_min_lengths)
+            * len(self.batch_analyzers)
+        )
 
         self.batch_total = total
         self.batch_done = 0
@@ -533,54 +614,87 @@ class TrainingState(BaseState):
             _tune_cv = max(2, int(self.tune_cv_str))
 
             progress_file = session_path / "batch_progress.json"
-            progress_file.write_text('{"pct": 0, "msg": "Starte…", "done": false, '
-                                     '"config_idx": 0, "config_total": 0, "error": ""}')
+            progress_file.write_text(
+                '{"pct": 0, "msg": "Starte…", "done": false, '
+                '"config_idx": 0, "config_total": 0, "error": ""}'
+            )
 
-            classifier_script = Path(__file__).parent.parent / "sachgruppen_classifier.py"
+            classifier_script = (
+                Path(__file__).parent.parent / "sachgruppen_classifier.py"
+            )
 
             # Normalize analyzer names (web-internal → CLI names)
-            analyzers_clean = list({
-                "word" if a.startswith("word") else "char_wb"
-                for a in self.batch_analyzers
-            })
+            analyzers_clean = list(
+                {
+                    "word" if a.startswith("word") else "char_wb"
+                    for a in self.batch_analyzers
+                }
+            )
             # word_ngram_max: derive maximum from all batch_analyzers
             word_ngram_max = max(
                 (2 if a == "word-(1,2)" else 1) for a in self.batch_analyzers
             )
 
             cmd = [
-                sys.executable, str(classifier_script),
-                "--csv", str(csv_path),
-                "--model", *self.batch_model_types,
-                "--analyzer", *analyzers_clean,
-                "--min-length", *[str(m) for m in self.batch_min_lengths],
-                "--stopwords", *["true" if s else "false" for s in sw_vals],
-                "--word-ngram-max", str(word_ngram_max),
-                "--test-size", str(self.test_size),
-                "--svm-c", self.svm_c_str,
-                "--xgb-n-estimators", self.xgb_n_estimators_str,
-                "--xgb-max-depth", self.xgb_max_depth_str,
-                "--xgb-learning-rate", self.xgb_learning_rate_str,
-                "--xgb-subsample", self.xgb_subsample_str,
-                "--nn-hidden-layers", self.nn_hidden_layers_str,
-                "--nn-alpha", self.nn_alpha_str,
-                "--nn-learning-rate-init", self.nn_learning_rate_init_str,
-                "--output-dir", str(MODELS_DIR),
-                "--progress-file", str(progress_file),
+                sys.executable,
+                str(classifier_script),
+                "--csv",
+                str(csv_path),
+                "--model",
+                *self.batch_model_types,
+                "--analyzer",
+                *analyzers_clean,
+                "--min-length",
+                *[str(m) for m in self.batch_min_lengths],
+                "--stopwords",
+                *["true" if s else "false" for s in sw_vals],
+                "--word-ngram-max",
+                str(word_ngram_max),
+                "--test-size",
+                str(self.test_size),
+                "--svm-c",
+                self.svm_c_str,
+                "--xgb-n-estimators",
+                self.xgb_n_estimators_str,
+                "--xgb-max-depth",
+                self.xgb_max_depth_str,
+                "--xgb-learning-rate",
+                self.xgb_learning_rate_str,
+                "--xgb-subsample",
+                self.xgb_subsample_str,
+                "--nn-hidden-layers",
+                self.nn_hidden_layers_str,
+                "--nn-alpha",
+                self.nn_alpha_str,
+                "--nn-learning-rate-init",
+                self.nn_learning_rate_init_str,
+                "--output-dir",
+                str(MODELS_DIR),
+                "--progress-file",
+                str(progress_file),
             ]
             if _tune:
-                cmd += ["--tune",
-                        "--tune-n-iter", str(_tune_n_iter),
-                        "--tune-cv", str(_tune_cv)]
+                cmd += [
+                    "--tune",
+                    "--tune-n-iter",
+                    str(_tune_n_iter),
+                    "--tune-cv",
+                    str(_tune_cv),
+                ]
+            if self.use_spacy:
+                cmd.append("--use-spacy")
+            if self.use_dornseiff:
+                cmd.append("--use-dornseiff")
 
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True)
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
 
             while proc.poll() is None:
                 await asyncio.sleep(0.5)
                 try:
                     prog = json.loads(progress_file.read_text())
-                except (OSError, json.JSONDecodeError):
+                except OSError, json.JSONDecodeError:
                     prog = {}
 
                 self.batch_done = prog.get("config_idx", self.batch_done)
@@ -593,7 +707,7 @@ class TrainingState(BaseState):
 
             try:
                 prog = json.loads(progress_file.read_text())
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 prog = {}
 
             if prog.get("error"):
@@ -604,6 +718,7 @@ class TrainingState(BaseState):
         except Exception as e:
             self.batch_errors = self.batch_errors + [str(e)]
             import traceback
+
             traceback.print_exc()
         finally:
             self.batch_is_running = False
@@ -615,29 +730,35 @@ def training_page() -> rx.Component:
     return base_layout(
         rx.vstack(
             rx.heading("TRAINING", size="4", color="var(--jade-12)", weight="light"),
-
             # Notice when training is disabled
-            *([rx.callout(
-                rx.vstack(
-                    rx.text("Training ist deaktiviert.", font_weight="bold"),
-                    rx.text(
-                        "Um Training zu aktivieren, setzen Sie ENABLE_TRAINING=True in der .env-Datei "
-                        "und starten Sie die Anwendung neu.",
-                        size="2",
-                    ),
-                    spacing="1",
-                ),
-                icon="octagon_alert",
-                color_scheme="amber",
-                width="100%",
-            )] if not ENABLE_TRAINING else []),
-
+            *(
+                [
+                    rx.callout(
+                        rx.vstack(
+                            rx.text("Training ist deaktiviert.", font_weight="bold"),
+                            rx.text(
+                                "Um Training zu aktivieren, setzen Sie ENABLE_TRAINING=True in der .env-Datei "
+                                "und starten Sie die Anwendung neu.",
+                                size="2",
+                            ),
+                            spacing="1",
+                        ),
+                        icon="octagon_alert",
+                        color_scheme="amber",
+                        width="100%",
+                    )
+                ]
+                if not ENABLE_TRAINING
+                else []
+            ),
             # Data upload
             rx.card(
                 rx.vstack(
                     rx.heading("Daten hochladen", size="5"),
-                    rx.text("CSV mit Spalten: lemma, bedeutung, sachgruppe", color="var(--gray-11)"),
-
+                    rx.text(
+                        "CSV mit Spalten: lemma, bedeutung, sachgruppe",
+                        color="var(--gray-11)",
+                    ),
                     rx.upload(
                         rx.button(
                             "CSV-Datei auswählen",
@@ -650,37 +771,34 @@ def training_page() -> rx.Component:
                         on_drop=TrainingState.handle_csv_upload,
                         disabled=not ENABLE_TRAINING,
                     ),
-
                     rx.cond(
                         TrainingState.uploaded_filename,
                         rx.hstack(
                             rx.icon("check-check", color="var(--jade-11)"),
                             rx.text(TrainingState.uploaded_filename),
-                            rx.badge(f"{TrainingState.total_samples} Samples, {TrainingState.num_classes} Klassen"),
-                            spacing="2"
-                        )
+                            rx.badge(
+                                f"{TrainingState.total_samples} Samples, {TrainingState.num_classes} Klassen"
+                            ),
+                            spacing="2",
+                        ),
                     ),
-
                     rx.cond(
                         TrainingState.upload_error,
                         rx.callout(
                             TrainingState.upload_error,
                             icon="triangle_alert",
-                            color_scheme="red"
-                        )
+                            color_scheme="red",
+                        ),
                     ),
-
-                    spacing="3"
+                    spacing="3",
                 ),
                 padding="1.5rem",
-                width="100%"
+                width="100%",
             ),
-
             # Training config
             rx.card(
                 rx.vstack(
                     rx.heading("Einzeltraining", size="5"),
-
                     # Each option on its own row: control on the left, description on the right
                     # Row 1: model type
                     rx.hstack(
@@ -698,15 +816,15 @@ def training_page() -> rx.Component:
                         rx.text(
                             "Algorithmus für die Klassifikation. SVM ist ein guter Standard – schnell und genau. "
                             "XGBoost erreicht oft die höchste Accuracy, braucht aber deutlich länger.",
-                            size="2", color="var(--gray-11)", flex="1",
+                            size="2",
+                            color="var(--gray-11)",
+                            flex="1",
                         ),
                         align_items="center",
                         spacing="6",
                         width="100%",
                     ),
-
                     rx.divider(),
-
                     # Row 2: test fraction
                     rx.hstack(
                         rx.vstack(
@@ -720,7 +838,11 @@ def training_page() -> rx.Component:
                                 on_change=TrainingState.handle_test_size_change,
                                 width="180px",
                             ),
-                            rx.text(TrainingState.test_size_formatted, size="2", color="var(--gray-11)"),
+                            rx.text(
+                                TrainingState.test_size_formatted,
+                                size="2",
+                                color="var(--gray-11)",
+                            ),
                             align_items="start",
                             spacing="1",
                             min_width="220px",
@@ -728,15 +850,15 @@ def training_page() -> rx.Component:
                         rx.text(
                             "Anteil der Daten, der für die Evaluation zurückgehalten wird (nicht zum Training genutzt). "
                             "20% ist ein üblicher Standardwert.",
-                            size="2", color="var(--gray-11)", flex="1",
+                            size="2",
+                            color="var(--gray-11)",
+                            flex="1",
                         ),
                         align_items="center",
                         spacing="6",
                         width="100%",
                     ),
-
                     rx.divider(),
-
                     # Row 3: stopwords
                     rx.hstack(
                         rx.vstack(
@@ -748,8 +870,11 @@ def training_page() -> rx.Component:
                                     size="2",
                                 ),
                                 rx.text(
-                                    rx.cond(TrainingState.use_stopword_removal, "an", "aus"),
-                                    size="2", color="var(--gray-11)",
+                                    rx.cond(
+                                        TrainingState.use_stopword_removal, "an", "aus"
+                                    ),
+                                    size="2",
+                                    color="var(--gray-11)",
                                 ),
                                 align_items="center",
                                 spacing="2",
@@ -762,15 +887,15 @@ def training_page() -> rx.Component:
                             "Entfernt häufige Funktionswörter (Artikel, Präpositionen, Hilfsverben) "
                             "aus stopwords_de.txt vor der TF-IDF-Vektorisierung. "
                             "Ermöglicht Vergleich mit/ohne Stoppwörter.",
-                            size="2", color="var(--gray-11)", flex="1",
+                            size="2",
+                            color="var(--gray-11)",
+                            flex="1",
                         ),
                         align_items="center",
                         spacing="6",
                         width="100%",
                     ),
-
                     rx.divider(),
-
                     # Row 4: min. word length
                     rx.hstack(
                         rx.vstack(
@@ -784,7 +909,11 @@ def training_page() -> rx.Component:
                                 on_change=TrainingState.handle_min_word_length_change,
                                 width="180px",
                             ),
-                            rx.text(TrainingState.min_word_length_formatted, size="2", color="var(--gray-11)"),
+                            rx.text(
+                                TrainingState.min_word_length_formatted,
+                                size="2",
+                                color="var(--gray-11)",
+                            ),
                             align_items="start",
                             spacing="1",
                             min_width="220px",
@@ -793,15 +922,15 @@ def training_page() -> rx.Component:
                             "Wörter kürzer als dieser Wert werden vor der Vektorisierung entfernt. "
                             "Wert 1 bedeutet: alle Wörter bleiben. "
                             "Ab 2 fallen Einzelbuchstaben weg, ab 3 auch zweistellige Abkürzungen.",
-                            size="2", color="var(--gray-11)", flex="1",
+                            size="2",
+                            color="var(--gray-11)",
+                            flex="1",
                         ),
                         align_items="center",
                         spacing="6",
                         width="100%",
                     ),
-
                     rx.divider(),
-
                     # Row 5: analyzer / n-gram
                     rx.hstack(
                         rx.vstack(
@@ -814,7 +943,9 @@ def training_page() -> rx.Component:
                             rx.cond(
                                 TrainingState.analyzer_mode == "word",
                                 rx.hstack(
-                                    rx.text("N-Gramm:", size="2", color="var(--gray-11)"),
+                                    rx.text(
+                                        "N-Gramm:", size="2", color="var(--gray-11)"
+                                    ),
                                     rx.select(
                                         ["1", "2"],
                                         value=TrainingState.word_ngram_max_str,
@@ -835,29 +966,111 @@ def training_page() -> rx.Component:
                             rx.text(
                                 "Wort-Ebene: Features sind ganze Wörter statt Zeichenketten. "
                                 "N-Gramm 1 = nur Einzelwörter; "
-                                "N-Gramm 2 = Einzelwörter + Wortpaare (z.B. \"kleines Kind\" als Feature).",
-                                size="2", color="var(--gray-11)", flex="1",
+                                'N-Gramm 2 = Einzelwörter + Wortpaare (z.B. "kleines Kind" als Feature).',
+                                size="2",
+                                color="var(--gray-11)",
+                                flex="1",
                             ),
                             rx.text(
                                 "Zeichen-N-Gramme (char_wb): Features sind Zeichenfolgen innerhalb von Wörtern. "
                                 "Robuster bei Tippfehlern und morphologischen Varianten (Flexion, Komposita).",
-                                size="2", color="var(--gray-11)", flex="1",
+                                size="2",
+                                color="var(--gray-11)",
+                                flex="1",
                             ),
                         ),
                         align_items="center",
                         spacing="6",
                         width="100%",
                     ),
-
+                    rx.divider(),
+                    # Semantische Anreicherung
+                    rx.vstack(
+                        rx.text("Semantische Anreicherung", weight="bold", size="3"),
+                        rx.text(
+                            "Ergänzt die TF-IDF-Features um externes Semantikwissen. "
+                            "Beide Optionen werden zur bestehenden Vektorisierung hinzugefügt (kein Ersatz). ",
+                            size="2",
+                            color="var(--gray-11)",
+                        ),
+                        # spaCy
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("spaCy-Wortvektoren", weight="bold", size="2"),
+                                rx.hstack(
+                                    rx.switch(
+                                        checked=TrainingState.use_spacy,
+                                        on_change=TrainingState.set_use_spacy,
+                                        size="2",
+                                    ),
+                                    rx.text(
+                                        rx.cond(TrainingState.use_spacy, "an", "aus"),
+                                        size="2",
+                                        color="var(--gray-11)",
+                                    ),
+                                    align_items="center",
+                                    spacing="2",
+                                ),
+                                align_items="start",
+                                spacing="1",
+                                min_width="220px",
+                            ),
+                            rx.text(
+                                "Fügt 300-dimensionale statische Wortvektoren (de_core_news_lg) hinzu. ",
+                                size="2",
+                                color="var(--gray-11)",
+                                flex="1",
+                            ),
+                            align_items="center",
+                            spacing="6",
+                            width="100%",
+                        ),
+                        # Dornseiff
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("Dornseiff-Thesaurus", weight="bold", size="2"),
+                                rx.hstack(
+                                    rx.switch(
+                                        checked=TrainingState.use_dornseiff,
+                                        on_change=TrainingState.set_use_dornseiff,
+                                        size="2",
+                                    ),
+                                    rx.text(
+                                        rx.cond(
+                                            TrainingState.use_dornseiff, "an", "aus"
+                                        ),
+                                        size="2",
+                                        color="var(--gray-11)",
+                                    ),
+                                    align_items="center",
+                                    spacing="2",
+                                ),
+                                align_items="start",
+                                spacing="1",
+                                min_width="220px",
+                            ),
+                            rx.text(
+                                "Fügt Dornseiff-Sachgruppen-Zugehörigkeit als TF-IDF-Features hinzu ",
+                                size="2",
+                                color="var(--gray-11)",
+                                flex="1",
+                            ),
+                            align_items="start",
+                            spacing="6",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    rx.divider(),
                     rx.button(
                         "Modell trainieren",
                         on_click=TrainingState.start_training,
                         disabled=not ENABLE_TRAINING or ~TrainingState.can_train,
                         loading=TrainingState.is_training,
                         size="3",
-                        color_scheme="jade"
+                        color_scheme="jade",
                     ),
-
                     rx.cond(
                         TrainingState.is_training,
                         rx.vstack(
@@ -865,7 +1078,8 @@ def training_page() -> rx.Component:
                                 rx.text(TrainingState.training_progress, size="2"),
                                 rx.spacer(),
                                 rx.text(
-                                    TrainingState.training_progress_pct.to_string() + "%",
+                                    TrainingState.training_progress_pct.to_string()
+                                    + "%",
                                     size="2",
                                     color="var(--gray-11)",
                                 ),
@@ -874,27 +1088,34 @@ def training_page() -> rx.Component:
                             rx.progress(value=TrainingState.training_progress_pct),
                             spacing="2",
                             width="100%",
-                        )
+                        ),
                     ),
-
                     rx.cond(
                         TrainingState.accuracy > 0,
                         rx.callout(
                             rx.vstack(
-                                rx.heading(f"Accuracy: {TrainingState.accuracy:.4f}", size="4"),
-                                rx.text(f"Trainingszeit: {TrainingState.training_time:.1f}s"),
-                                rx.text(f"Modell gespeichert: {TrainingState.saved_model_path}"),
+                                rx.heading(
+                                    f"Accuracy: {TrainingState.accuracy:.4f}", size="4"
+                                ),
+                                rx.text(
+                                    f"Trainingszeit: {TrainingState.training_time:.1f}s"
+                                ),
+                                rx.text(
+                                    f"Modell gespeichert: {TrainingState.saved_model_path}"
+                                ),
                                 rx.cond(
                                     TrainingState.best_params_str != "",
                                     rx.vstack(
                                         rx.divider(),
                                         rx.text(
                                             f"Beste Parameter (Auto Tune, CV-Score: {TrainingState.best_cv_score:.4f}):",
-                                            size="2", weight="bold",
+                                            size="2",
+                                            weight="bold",
                                         ),
                                         rx.text(
                                             TrainingState.best_params_str,
-                                            size="2", font_family="monospace",
+                                            size="2",
+                                            font_family="monospace",
                                         ),
                                         spacing="1",
                                         width="100%",
@@ -904,33 +1125,30 @@ def training_page() -> rx.Component:
                             ),
                             icon="check-check",
                             color_scheme="jade",
-                        )
+                        ),
                     ),
-
                     rx.cond(
                         TrainingState.training_error,
                         rx.callout(
                             TrainingState.training_error,
                             icon="triangle_alert",
-                            color_scheme="red"
-                        )
+                            color_scheme="red",
+                        ),
                     ),
-
                     spacing="4",
                 ),
                 padding="1.5rem",
-                width="100%"
+                width="100%",
             ),
-
             # Hyperparameter tuning
             rx.card(
                 rx.vstack(
                     rx.heading("Hyperparameter-Tuning", size="5"),
                     rx.text(
                         "Legt fest, welche Modellparameter beim Training verwendet werden (Einzel- und Batchtraining).",
-                        color="var(--gray-11)", size="2",
+                        color="var(--gray-11)",
+                        size="2",
                     ),
-
                     rx.radio_group(
                         ["Standard-Werte", "Auto Tune", "Parameter definieren"],
                         value=TrainingState.tune_mode_label,
@@ -938,29 +1156,35 @@ def training_page() -> rx.Component:
                         direction="column",
                         gap="2",
                     ),
-
                     # Standard mode: note on current defaults
                     rx.cond(
                         TrainingState.tune_mode == "standard",
                         rx.callout(
                             rx.vstack(
-                                rx.text("Verwendete Standardparameter:", weight="bold", size="2"),
+                                rx.text(
+                                    "Verwendete Standardparameter:",
+                                    weight="bold",
+                                    size="2",
+                                ),
                                 rx.cond(
                                     TrainingState.selected_model == "svm",
                                     rx.text(
                                         "SVM: C=1.0 · max_iter=5000 · dual=False · class_weight=balanced",
-                                        size="2", font_family="monospace",
+                                        size="2",
+                                        font_family="monospace",
                                     ),
                                     rx.cond(
                                         TrainingState.selected_model == "xgboost",
                                         rx.text(
                                             "XGBoost: n_estimators=300 · max_depth=6 · learning_rate=0.05 "
                                             "· subsample=0.8 · colsample_bytree=0.8",
-                                            size="2", font_family="monospace",
+                                            size="2",
+                                            font_family="monospace",
                                         ),
                                         rx.text(
                                             "Die Standardparameter des gewählten Modells werden verwendet.",
-                                            size="2", color="var(--gray-11)",
+                                            size="2",
+                                            color="var(--gray-11)",
                                         ),
                                     ),
                                 ),
@@ -971,14 +1195,17 @@ def training_page() -> rx.Component:
                             width="100%",
                         ),
                     ),
-
                     # Auto tune: configuration + warning
                     rx.cond(
                         TrainingState.tune_mode == "auto",
                         rx.vstack(
                             rx.hstack(
                                 rx.vstack(
-                                    rx.text("Kombinationen (n_iter)", weight="bold", size="2"),
+                                    rx.text(
+                                        "Kombinationen (n_iter)",
+                                        weight="bold",
+                                        size="2",
+                                    ),
                                     rx.input(
                                         value=TrainingState.tune_n_iter_str,
                                         on_change=TrainingState.set_tune_n_iter_str,
@@ -989,7 +1216,8 @@ def training_page() -> rx.Component:
                                     rx.text(
                                         "Wie viele zufällige Parameterkombinationen getestet werden. "
                                         "Weniger = schneller, mehr = gründlicher. Standard: 20",
-                                        size="1", color="var(--gray-11)",
+                                        size="1",
+                                        color="var(--gray-11)",
                                     ),
                                     spacing="1",
                                 ),
@@ -1005,7 +1233,8 @@ def training_page() -> rx.Component:
                                     rx.text(
                                         "Jede Kombination wird k-fach kreuzvalidiert. "
                                         "Mindestens 2. Standard: 3",
-                                        size="1", color="var(--gray-11)",
+                                        size="1",
+                                        color="var(--gray-11)",
                                     ),
                                     spacing="1",
                                 ),
@@ -1026,7 +1255,6 @@ def training_page() -> rx.Component:
                             width="100%",
                         ),
                     ),
-
                     # Manual: input fields for SVM and XGBoost
                     rx.cond(
                         TrainingState.tune_mode == "manual",
@@ -1041,16 +1269,28 @@ def training_page() -> rx.Component:
                                 color_scheme="blue",
                                 width="100%",
                             ),
-
                             # SVM parameters
                             rx.box(
                                 rx.vstack(
                                     rx.text("Linear SVM", weight="bold", size="3"),
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("C (Regularisierung)", weight="bold", size="2"),
+                                            rx.text(
+                                                "C (Regularisierung)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
-                                                ["0.01", "0.1", "0.5", "1.0", "5.0", "10.0", "50.0", "100.0"],
+                                                [
+                                                    "0.01",
+                                                    "0.1",
+                                                    "0.5",
+                                                    "1.0",
+                                                    "5.0",
+                                                    "10.0",
+                                                    "50.0",
+                                                    "100.0",
+                                                ],
                                                 value=TrainingState.svm_c_str,
                                                 on_change=TrainingState.set_svm_c_str,
                                             ),
@@ -1061,7 +1301,9 @@ def training_page() -> rx.Component:
                                             "Trade-off zwischen Margin-Maximierung und Fehlklassifikationen. "
                                             "Kleinere Werte = stärkere Regularisierung, robuster bei Rauschen. "
                                             "Größere Werte = engere Anpassung an die Trainingsdaten. Standard: 1.0",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
@@ -1074,15 +1316,17 @@ def training_page() -> rx.Component:
                                 border_radius="var(--radius-2)",
                                 width="100%",
                             ),
-
                             # XGBoost parameters
                             rx.box(
                                 rx.vstack(
                                     rx.text("XGBoost", weight="bold", size="3"),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Anzahl Bäume (n_estimators)", weight="bold", size="2"),
+                                            rx.text(
+                                                "Anzahl Bäume (n_estimators)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
                                                 ["100", "200", "300", "500", "800"],
                                                 value=TrainingState.xgb_n_estimators_str,
@@ -1094,18 +1338,22 @@ def training_page() -> rx.Component:
                                         rx.text(
                                             "Anzahl der Entscheidungsbäume im Ensemble. Mehr Bäume verbessern oft "
                                             "die Accuracy, erhöhen aber die Trainingszeit linear. Standard: 300",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     rx.divider(),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Baumtiefe (max_depth)", weight="bold", size="2"),
+                                            rx.text(
+                                                "Baumtiefe (max_depth)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
                                                 ["3", "4", "5", "6", "7", "8", "10"],
                                                 value=TrainingState.xgb_max_depth_str,
@@ -1117,20 +1365,31 @@ def training_page() -> rx.Component:
                                         rx.text(
                                             "Maximale Tiefe jedes Baums. Tiefere Bäume erfassen komplexere Muster, "
                                             "neigen aber zu Overfitting. Flache Bäume (3–4) regularisieren stärker. Standard: 6",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     rx.divider(),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Lernrate (learning_rate)", weight="bold", size="2"),
+                                            rx.text(
+                                                "Lernrate (learning_rate)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
-                                                ["0.01", "0.03", "0.05", "0.1", "0.15", "0.2"],
+                                                [
+                                                    "0.01",
+                                                    "0.03",
+                                                    "0.05",
+                                                    "0.1",
+                                                    "0.15",
+                                                    "0.2",
+                                                ],
                                                 value=TrainingState.xgb_learning_rate_str,
                                                 on_change=TrainingState.set_xgb_learning_rate_str,
                                             ),
@@ -1141,20 +1400,31 @@ def training_page() -> rx.Component:
                                             "Schrittgröße beim Hinzufügen jedes Baums. Kleinere Werte generalisieren "
                                             "besser, benötigen aber mehr Bäume. Kombiniere niedrige Lernrate mit "
                                             "hohen n_estimators. Standard: 0.05",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     rx.divider(),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Zeilen-Sampling (subsample)", weight="bold", size="2"),
+                                            rx.text(
+                                                "Zeilen-Sampling (subsample)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
-                                                ["0.5", "0.6", "0.7", "0.8", "0.9", "1.0"],
+                                                [
+                                                    "0.5",
+                                                    "0.6",
+                                                    "0.7",
+                                                    "0.8",
+                                                    "0.9",
+                                                    "1.0",
+                                                ],
                                                 value=TrainingState.xgb_subsample_str,
                                                 on_change=TrainingState.set_xgb_subsample_str,
                                             ),
@@ -1164,13 +1434,14 @@ def training_page() -> rx.Component:
                                         rx.text(
                                             "Anteil der Trainingsdaten, der pro Baum zufällig gezogen wird. "
                                             "Werte < 1.0 reduzieren Overfitting und beschleunigen das Training. Standard: 0.8",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     spacing="3",
                                 ),
                                 padding="1rem",
@@ -1178,17 +1449,25 @@ def training_page() -> rx.Component:
                                 border_radius="var(--radius-2)",
                                 width="100%",
                             ),
-
                             # Neural Network parameters
                             rx.box(
                                 rx.vstack(
-                                    rx.text("Neural Network (MLP)", weight="bold", size="3"),
-
+                                    rx.text(
+                                        "Neural Network (MLP)", weight="bold", size="3"
+                                    ),
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Hidden Layers", weight="bold", size="2"),
+                                            rx.text(
+                                                "Hidden Layers", weight="bold", size="2"
+                                            ),
                                             rx.select(
-                                                ["100", "200,100", "200,100,50", "300,150,75", "400,200,100,50"],
+                                                [
+                                                    "100",
+                                                    "200,100",
+                                                    "200,100,50",
+                                                    "300,150,75",
+                                                    "400,200,100,50",
+                                                ],
                                                 value=TrainingState.nn_hidden_layers_str,
                                                 on_change=TrainingState.set_nn_hidden_layers_str,
                                             ),
@@ -1199,20 +1478,30 @@ def training_page() -> rx.Component:
                                             "Größe und Anzahl der versteckten Schichten. Mehr/größere Schichten "
                                             "erhöhen die Modellkapazität, benötigen aber mehr Trainingszeit und "
                                             "neigen eher zu Overfitting. Standard: 200,100,50",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     rx.divider(),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("L2-Regularisierung (alpha)", weight="bold", size="2"),
+                                            rx.text(
+                                                "L2-Regularisierung (alpha)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
-                                                ["0.00001", "0.0001", "0.001", "0.01", "0.1"],
+                                                [
+                                                    "0.00001",
+                                                    "0.0001",
+                                                    "0.001",
+                                                    "0.01",
+                                                    "0.1",
+                                                ],
                                                 value=TrainingState.nn_alpha_str,
                                                 on_change=TrainingState.set_nn_alpha_str,
                                             ),
@@ -1223,20 +1512,30 @@ def training_page() -> rx.Component:
                                             "Stärke der L2-Regularisierung der Gewichte. Größere Werte "
                                             "reduzieren Overfitting, können aber die Modellkapazität einschränken. "
                                             "Standard: 0.0001",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     rx.divider(),
-
                                     rx.hstack(
                                         rx.vstack(
-                                            rx.text("Lernrate (learning_rate_init)", weight="bold", size="2"),
+                                            rx.text(
+                                                "Lernrate (learning_rate_init)",
+                                                weight="bold",
+                                                size="2",
+                                            ),
                                             rx.select(
-                                                ["0.0001", "0.0005", "0.001", "0.005", "0.01"],
+                                                [
+                                                    "0.0001",
+                                                    "0.0005",
+                                                    "0.001",
+                                                    "0.005",
+                                                    "0.01",
+                                                ],
                                                 value=TrainingState.nn_learning_rate_init_str,
                                                 on_change=TrainingState.set_nn_learning_rate_init_str,
                                             ),
@@ -1247,13 +1546,14 @@ def training_page() -> rx.Component:
                                             "Initiale Lernrate des Adam-Optimierers. Kleinere Werte konvergieren "
                                             "stabiler aber langsamer; größere Werte können instabil werden. "
                                             "Standard: 0.001",
-                                            size="2", color="var(--gray-11)", flex="1",
+                                            size="2",
+                                            color="var(--gray-11)",
+                                            flex="1",
                                         ),
                                         align_items="center",
                                         spacing="6",
                                         width="100%",
                                     ),
-
                                     spacing="3",
                                 ),
                                 padding="1rem",
@@ -1261,18 +1561,15 @@ def training_page() -> rx.Component:
                                 border_radius="var(--radius-2)",
                                 width="100%",
                             ),
-
                             spacing="4",
                             width="100%",
                         ),
                     ),
-
                     spacing="4",
                 ),
                 padding="1.5rem",
                 width="100%",
             ),
-
             # Batch training
             rx.card(
                 rx.vstack(
@@ -1283,7 +1580,6 @@ def training_page() -> rx.Component:
                         color="var(--gray-11)",
                         size="2",
                     ),
-
                     rx.hstack(
                         # Model types
                         rx.vstack(
@@ -1291,8 +1587,12 @@ def training_page() -> rx.Component:
                             *[
                                 rx.hstack(
                                     rx.checkbox(
-                                        checked=TrainingState.batch_model_types.contains(mt),
-                                        on_change=lambda v, m=mt: TrainingState.toggle_batch_model(m),
+                                        checked=TrainingState.batch_model_types.contains(
+                                            mt
+                                        ),
+                                        on_change=lambda v, m=mt: (
+                                            TrainingState.toggle_batch_model(m)
+                                        ),
                                         size="1",
                                     ),
                                     rx.text(name, size="2"),
@@ -1304,14 +1604,17 @@ def training_page() -> rx.Component:
                             align_items="start",
                             spacing="1",
                         ),
-
                         # Stopwords
                         rx.vstack(
                             rx.text("Stoppwörter:", weight="bold", size="2"),
                             rx.hstack(
                                 rx.checkbox(
-                                    checked=TrainingState.batch_use_stopwords.contains(False),
-                                    on_change=lambda v: TrainingState.toggle_batch_stopwords(False),
+                                    checked=TrainingState.batch_use_stopwords.contains(
+                                        False
+                                    ),
+                                    on_change=lambda v: (
+                                        TrainingState.toggle_batch_stopwords(False)
+                                    ),
                                     size="1",
                                 ),
                                 rx.text("nicht entfernen", size="2"),
@@ -1320,8 +1623,12 @@ def training_page() -> rx.Component:
                             ),
                             rx.hstack(
                                 rx.checkbox(
-                                    checked=TrainingState.batch_use_stopwords.contains(True),
-                                    on_change=lambda v: TrainingState.toggle_batch_stopwords(True),
+                                    checked=TrainingState.batch_use_stopwords.contains(
+                                        True
+                                    ),
+                                    on_change=lambda v: (
+                                        TrainingState.toggle_batch_stopwords(True)
+                                    ),
                                     size="1",
                                 ),
                                 rx.text("entfernen", size="2"),
@@ -1331,15 +1638,18 @@ def training_page() -> rx.Component:
                             align_items="start",
                             spacing="1",
                         ),
-
                         # Min. word length
                         rx.vstack(
                             rx.text("Min. Wortlänge:", weight="bold", size="2"),
                             *[
                                 rx.hstack(
                                     rx.checkbox(
-                                        checked=TrainingState.batch_min_lengths.contains(length),
-                                        on_change=lambda v, l=length: TrainingState.toggle_batch_min_length(l),
+                                        checked=TrainingState.batch_min_lengths.contains(
+                                            length
+                                        ),
+                                        on_change=lambda v, l=length: (
+                                            TrainingState.toggle_batch_min_length(l)
+                                        ),
                                         size="1",
                                     ),
                                     rx.text(f"≥ {length}", size="2"),
@@ -1351,15 +1661,18 @@ def training_page() -> rx.Component:
                             align_items="start",
                             spacing="1",
                         ),
-
                         # Analyzer
                         rx.vstack(
                             rx.text("Analyzer:", weight="bold", size="2"),
                             *[
                                 rx.hstack(
                                     rx.checkbox(
-                                        checked=TrainingState.batch_analyzers.contains(an),
-                                        on_change=lambda v, a=an: TrainingState.toggle_batch_analyzer(a),
+                                        checked=TrainingState.batch_analyzers.contains(
+                                            an
+                                        ),
+                                        on_change=lambda v, a=an: (
+                                            TrainingState.toggle_batch_analyzer(a)
+                                        ),
                                         size="1",
                                     ),
                                     rx.text(an, size="2"),
@@ -1371,12 +1684,10 @@ def training_page() -> rx.Component:
                             align_items="start",
                             spacing="1",
                         ),
-
                         spacing="6",
                         align_items="start",
                         flex_wrap="wrap",
                     ),
-
                     rx.hstack(
                         rx.vstack(
                             rx.text(
@@ -1402,13 +1713,15 @@ def training_page() -> rx.Component:
                     rx.button(
                         "Batch-Training starten",
                         on_click=TrainingState.start_batch_training,
-                        disabled=not ENABLE_TRAINING or ~TrainingState.can_train | TrainingState.batch_is_running | (TrainingState.tune_mode == "auto"),
+                        disabled=not ENABLE_TRAINING
+                        or ~TrainingState.can_train
+                        | TrainingState.batch_is_running
+                        | (TrainingState.tune_mode == "auto"),
                         loading=TrainingState.batch_is_running,
                         color_scheme="jade",
                         variant="soft",
                         size="3",
                     ),
-
                     rx.cond(
                         TrainingState.tune_mode == "auto",
                         rx.callout(
@@ -1424,7 +1737,6 @@ def training_page() -> rx.Component:
                             width="100%",
                         ),
                     ),
-
                     # Batch progress
                     rx.cond(
                         TrainingState.batch_is_running,
@@ -1434,13 +1746,15 @@ def training_page() -> rx.Component:
                             spacing="2",
                         ),
                     ),
-
                     # Batch errors
                     rx.cond(
                         TrainingState.batch_errors,
                         rx.callout(
                             rx.vstack(
-                                rx.text("Fehler bei einzelnen Konfigurationen:", weight="bold"),
+                                rx.text(
+                                    "Fehler bei einzelnen Konfigurationen:",
+                                    weight="bold",
+                                ),
                                 rx.foreach(
                                     TrainingState.batch_errors,
                                     lambda e: rx.text(e, size="1"),
@@ -1451,15 +1765,13 @@ def training_page() -> rx.Component:
                             color_scheme="amber",
                         ),
                     ),
-
                     spacing="3",
                 ),
                 padding="1.5rem",
                 width="100%",
             ),
-
             spacing="4",
             width="100%",
-            max_width="100%"
+            max_width="100%",
         )
     )

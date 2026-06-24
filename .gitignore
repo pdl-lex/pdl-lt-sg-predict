@@ -27,6 +27,8 @@ reflex.log
 *.pkl
 *_metadata.json
 models/
+# Dornseiff-Gazetteer in assets/ darf ins Repo
+!assets/dornseiff_gaz_cache.pkl
 test/
 
 # Ongoging Analysis
