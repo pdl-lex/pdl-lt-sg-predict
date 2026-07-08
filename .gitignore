@@ -1,0 +1,44 @@
+assets/external/
+*.py[cod]
+*.db
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.env
+
+# Virtual environments
+.venv
+
+# Claude Code
+.claude
+CLAUDE.md
+
+# Backend-Sessions (Uploads, Trainings-Fortschritt)
+.sessions/
+
+# Frontend (React + Vite)
+frontend/node_modules/
+frontend/dist/
+
+# ML-Modelle (zu groß für Git, per FTP auf Server laden)
+*.pkl
+*_metadata.json
+models/
+# Dornseiff-Gazetteer in assets/ darf ins Repo
+!assets/dornseiff_gaz_cache.pkl
+test/
+
+# Ongoing Analysis
+scripts/benchmark_dornseiff.py
+scripts/benchmark_embeddings.py
+scripts/benchmark_spacy.py
+scripts/confusion_pairs.py
+scripts/overlap_candidates.py
+taxonomie_ueberlapp_kandidaten.md
+
+# Alte Reflex-App (v1) — liegt bereits im v1-Repo pdl-lt-sg-predict
+pdl_lt_sg_predict_app/

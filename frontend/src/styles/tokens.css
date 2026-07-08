@@ -1,0 +1,167 @@
+/* LexoTerm design tokens — light first, dark via [data-theme="dark"].
+   Green stays primary, brightness varies. Status colors are restrained
+   so they feel like a tool, not a marketing site. */
+
+:root {
+  /* Type ------------------------------------------------------------ */
+  --lt-font-sans: "Noto Sans", system-ui, sans-serif;
+  --lt-font-serif: "Noto Serif", Georgia, serif;
+  --lt-font-mono: "Noto Sans Mono", ui-monospace, "JetBrains Mono", monospace;
+
+  /* Surfaces — light ------------------------------------------------ */
+  --lt-bg-0: #ffffff;
+  --lt-bg-1: #f7faf8;
+  --lt-bg-2: #eef2ef;
+  --lt-bg-3: #e3e9e5;
+  --lt-bg-elev: #ffffff;
+
+  /* Lines / borders ------------------------------------------------- */
+  --lt-line-1: #e6eae7;
+  --lt-line-2: #d3dad6;
+  --lt-line-3: #b8c1bd;
+
+  /* Text ------------------------------------------------------------ */
+  --lt-fg-1: #0d1411;
+  --lt-fg-2: #3e4845;
+  --lt-fg-3: #6c7672;
+  --lt-fg-4: #99a19d;
+  --lt-fg-inv: #ffffff;
+
+  /* Brand green — full ramp ---------------------------------------- */
+  --lt-g-50:  #ecf6f0;
+  --lt-g-100: #d4ebde;
+  --lt-g-200: #a7d6bd;
+  --lt-g-300: #79bf9b;
+  --lt-g-400: #4ea87b;
+  --lt-g-500: #2d8159;       /* PRIMARY (close to current site) */
+  --lt-g-600: #246a48;
+  --lt-g-700: #1c5238;
+  --lt-g-800: #143b29;
+  --lt-g-900: #0d2719;
+
+  --lt-primary:        var(--lt-g-500);
+  --lt-primary-hover:  var(--lt-g-600);
+  --lt-primary-soft:   var(--lt-g-50);
+  --lt-primary-line:   var(--lt-g-200);
+  --lt-on-primary:     #ffffff;
+
+  /* Status colors --------------------------------------------------- */
+  --lt-warn:       #b6791f;
+  --lt-warn-soft:  #fbf3df;
+  --lt-warn-line:  #ebd58a;
+
+  --lt-err:        #b03a3a;
+  --lt-err-soft:   #fbeaea;
+  --lt-err-line:   #ecc5c5;
+
+  --lt-info:       #2a6fa8;
+  --lt-info-soft:  #e8f1f9;
+  --lt-info-line:  #bcd5e9;
+
+  /* Radii / shadow / motion ---------------------------------------- */
+  --lt-r-xs: 3px;
+  --lt-r-sm: 5px;
+  --lt-r-md: 7px;
+  --lt-r-lg: 10px;
+  --lt-r-xl: 14px;
+
+  --lt-shadow-1: 0 1px 2px rgba(13, 39, 25, 0.05), 0 0 0 1px rgba(13, 39, 25, 0.03);
+  --lt-shadow-2: 0 2px 6px rgba(13, 39, 25, 0.06), 0 0 0 1px rgba(13, 39, 25, 0.04);
+  --lt-shadow-pop: 0 10px 30px rgba(13, 39, 25, 0.12), 0 0 0 1px rgba(13, 39, 25, 0.06);
+
+  /* Density — applied at .density-* on body ------------------------ */
+  --lt-row-h: 36px;
+  --lt-pad-y: 14px;
+  --lt-pad-x: 18px;
+  --lt-gap:   16px;
+  --lt-text-base: 14px;
+}
+
+/* Density variants ------------------------------------------------- */
+[data-density="airy"] {
+  --lt-row-h: 44px;
+  --lt-pad-y: 18px;
+  --lt-pad-x: 22px;
+  --lt-gap:   22px;
+}
+[data-density="dense"] {
+  --lt-row-h: 30px;
+  --lt-pad-y: 10px;
+  --lt-pad-x: 14px;
+  --lt-gap:   12px;
+  --lt-text-base: 13px;
+}
+
+/* Dark mode -------------------------------------------------------- */
+[data-theme="dark"] {
+  --lt-bg-0: #0e1412;
+  --lt-bg-1: #131a17;
+  --lt-bg-2: #18201d;
+  --lt-bg-3: #1f2924;
+  --lt-bg-elev: #131a17;
+
+  --lt-line-1: #222a26;
+  --lt-line-2: #2d3732;
+  --lt-line-3: #3e4944;
+
+  --lt-fg-1: #e9efeb;
+  --lt-fg-2: #adb7b2;
+  --lt-fg-3: #7d8782;
+  --lt-fg-4: #5a6360;
+
+  --lt-primary:       var(--lt-g-400);
+  --lt-primary-hover: var(--lt-g-300);
+  --lt-primary-soft:  rgba(78, 168, 123, 0.14);
+  --lt-primary-line:  rgba(78, 168, 123, 0.30);
+  --lt-on-primary:    #0d2719;
+
+  --lt-warn:       #d8a652;
+  --lt-warn-soft:  rgba(216, 166, 82, 0.13);
+  --lt-warn-line:  rgba(216, 166, 82, 0.30);
+
+  --lt-err:        #d97676;
+  --lt-err-soft:   rgba(217, 118, 118, 0.13);
+  --lt-err-line:   rgba(217, 118, 118, 0.30);
+
+  --lt-info:       #6ba8d8;
+  --lt-info-soft:  rgba(107, 168, 216, 0.13);
+  --lt-info-line:  rgba(107, 168, 216, 0.30);
+
+  --lt-shadow-1: 0 1px 0 rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03);
+  --lt-shadow-2: 0 2px 6px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+  --lt-shadow-pop: 0 10px 30px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* Base ------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+.lt {
+  font-family: var(--lt-font-sans);
+  font-size: var(--lt-text-base);
+  color: var(--lt-fg-1);
+  background: var(--lt-bg-1);
+  font-feature-settings: "ss01", "cv11";
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+.lt-mono { font-family: var(--lt-font-mono); font-feature-settings: "zero" 1; }
+.lt-serif { font-family: var(--lt-font-serif); }
+
+/* Utility ribbon-ish thin caps label */
+.lt-eyebrow {
+  font-family: var(--lt-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--lt-fg-3);
+  font-weight: 500;
+}
+.lt-kbd {
+  font-family: var(--lt-font-mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--lt-line-2);
+  border-bottom-width: 2px;
+  border-radius: var(--lt-r-xs);
+  color: var(--lt-fg-2);
+  background: var(--lt-bg-0);
+}

@@ -1,0 +1,33 @@
+[project]
+name = "lt-sg-predict"
+version = "0.1.0"
+description = "LexoTerm Tools — ML-Vorhersage von Sachgruppen aus Wörterbuchdaten (FastAPI + React/Vite)"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    # Backend (FastAPI)
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.49.0",
+    "python-multipart>=0.0.18",
+    "python-dotenv>=1.2.2",
+    # ML-Pipeline (unverändert aus dem CLI/Classifier)
+    "numpy>=2.4.2",
+    "pandas>=3.0.0",
+    "scikit-learn>=1.8.0",
+    "xgboost>=3.1.3",
+    "shap>=0.46.0",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+    "tqdm>=4.67.3",
+    "spacy>=3.7",
+    "de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",  # für starlette TestClient in den API-Tests
+]
+
+[tool.setuptools]
+py-modules = ["sachgruppen_classifier", "shap_utils"]
+packages = ["pdl_lt_sg_predict"]
