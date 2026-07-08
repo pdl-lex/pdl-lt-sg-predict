@@ -18,11 +18,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev
 
-# ML-Kern (Root-Module + gepickelte Modelle) und Fachlogik/API
+# ML-Kern (Root-Module) und Fachlogik/API
 COPY sachgruppen_classifier.py shap_utils.py sachgruppen.csv stopwords_de.txt anleitung.md ./
 COPY assets/ ./assets/
-COPY models/ ./models/
 COPY pdl_lt_sg_predict/ ./pdl_lt_sg_predict/
+
+# Die gepickelten Modelle werden NICHT ins Image kopiert, sondern zur Laufzeit
+# als Volume unter /app/models gemountet (per FTP bestückt). Mount-Point anlegen,
+# damit der Pfad auch ohne Volume existiert.
+RUN mkdir -p models
 
 # Gebautes Frontend an den von main.py erwarteten Ort
 COPY --from=frontend /frontend/dist ./frontend/dist
