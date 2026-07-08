@@ -13,10 +13,11 @@ WORKDIR /app
 # uv für Dependency-Management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# Python-Dependencies (ohne Dev-Gruppe). Ohne --frozen, damit uv den Lock
-# bei Bedarf aus pyproject.toml auflöst.
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --no-dev
+# Python-Dependencies (ohne Dev-Gruppe). --frozen: exakt der committete Lock,
+# kein Neu-Auflösen im Container (sonst droht Drift zu inkompatiblen Versionen,
+# z. B. numpy 2.5 -> numba 0.53.1 -> Build-Fehler).
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev --frozen
 
 # ML-Kern (Root-Module) und Fachlogik/API
 COPY sachgruppen_classifier.py shap_utils.py sachgruppen.csv stopwords_de.txt anleitung.md ./
