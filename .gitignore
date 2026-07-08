@@ -42,3 +42,7 @@ taxonomie_ueberlapp_kandidaten.md
 
 # Alte Reflex-App (v1) — liegt bereits im v1-Repo pdl-lt-sg-predict
 pdl_lt_sg_predict_app/
+
+# Große Trainings-/Ausgabedaten (nicht ins Repo; liegen auch in .sessions/)
+woerterbuch_daten_*.csv
+test_output.csv
