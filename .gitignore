@@ -9,6 +9,7 @@ dist/
 wheels/
 *.egg-info
 .env
+*.epub
 
 # Virtual environments
 .venv
@@ -46,3 +47,5 @@ pdl_lt_sg_predict_app/
 # Große Trainings-/Ausgabedaten (nicht ins Repo; liegen auch in .sessions/)
 woerterbuch_daten_*.csv
 test_output.csv
+
+start.txt

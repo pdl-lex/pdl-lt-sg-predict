@@ -239,7 +239,7 @@ if __name__ == '__main__':
         description='Vergleiche verschiedene ML-Modelle für Sachgruppen-Klassifikation'
     )
 
-    parser.add_argument('--csv', type=str, default='woerterbuch_daten.csv',
+    parser.add_argument('--csv', type=str, default='data/woerterbuch_daten.csv',
                        help='Pfad zur CSV-Datei mit Trainingsdaten')
     parser.add_argument('--quick', action='store_true',
                        help='Schnell-Vergleich (nur 3 Modelle)')

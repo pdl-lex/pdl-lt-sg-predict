@@ -35,10 +35,10 @@ interface Cfg {
 
 const DEFAULT_CFG: Cfg = {
   model: 'svm', test_size: 0.2, use_stopword_removal: false, min_word_length: 1,
-  analyzer_mode: 'char_wb', word_ngram_max: 1, use_spacy: false, use_dornseiff: false,
+  analyzer_mode: 'char_wb', word_ngram_max: 1, use_spacy: true, use_dornseiff: true,
   tune_mode: 'standard', tune_n_iter: 20, tune_cv: 3,
   svm_c: '1.0', xgb_n_estimators: '300', xgb_max_depth: '6', xgb_learning_rate: '0.05', xgb_subsample: '0.8',
-  nn_hidden_layers: '200,100,50', nn_alpha: '0.0001', nn_learning_rate_init: '0.001',
+  nn_hidden_layers: '100', nn_alpha: '0.0001', nn_learning_rate_init: '0.0005',
   batch_model_types: ['svm'], batch_use_stopwords: [false], batch_min_lengths: [1], batch_analyzers: ['char_wb'],
 }
 

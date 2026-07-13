@@ -13,7 +13,7 @@ Der Test-Split wird exakt wie in train_and_evaluate() reproduziert
 Beispiel:
     python scripts/evaluate_topk.py \
         --model models/svm_char_wb_ml1_sw0_001.pkl \
-        --csv woerterbuch_daten.csv
+        --csv data/woerterbuch_daten.csv
 """
 
 import argparse
@@ -46,24 +46,41 @@ def reproduce_test_split(csv_file: str, test_size: float = 0.2):
         mask_single = y.isin(single_sample_classes)
         X_multi, y_multi = X[~mask_single], y[~mask_single]
         try:
-            _, X_test, _, y_test = train_test_split(
+            X_train, X_test, y_train, y_test = train_test_split(
                 X_multi, y_multi, test_size=test_size,
                 random_state=42, stratify=y_multi,
             )
         except ValueError:
-            _, X_test, _, y_test = train_test_split(
+            X_train, X_test, y_train, y_test = train_test_split(
                 X_multi, y_multi, test_size=test_size, random_state=42,
             )
     else:
         try:
-            _, X_test, _, y_test = train_test_split(
+            X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=42, stratify=y,
             )
         except ValueError:
-            _, X_test, _, y_test = train_test_split(
+            X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=42,
             )
-    return X_test, y_test
+    return X_test, y_test, y_train
+
+
+def print_baseline(y_train, y_true, ks=(1, 3, 5)):
+    """Input-unabhaengige Baseline: sagt fuer jeden Testfall die k in y_train
+    haeufigsten Sachgruppen voraus (Menge, kein Ranking). Treffer = wahres
+    Label liegt in dieser fixen Menge. Das ist die bestmoegliche Strategie
+    ohne jede Information ueber lemma/bedeutung und damit die Messlatte, die
+    ein Modell schlagen muss, um ueberhaupt etwas gelernt zu haben.
+    """
+    freq_order = y_train.value_counts().index.to_numpy().astype(str)
+    print("\n" + "=" * 60)
+    print("BASELINE (haeufigste Sachgruppen aus Training, ohne lemma/bedeutung)")
+    print("=" * 60)
+    for k in ks:
+        top_k = set(freq_order[:k])
+        hit = np.array([label in top_k for label in y_true])
+        print(f"  Top-{k}: {hit.mean():.4f}")
 
 
 def class_scores(clf, X_test):
@@ -91,7 +108,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True, help="Pfad zur .pkl-Modelldatei")
-    ap.add_argument("--csv", default="woerterbuch_daten.csv", help="Trainings-CSV")
+    ap.add_argument("--csv", default="data/woerterbuch_daten.csv", help="Trainings-CSV")
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--group-len", type=int, default=2,
                     help="Stellen des Sachgruppen-Codes fuer die Hierarchie-Gruppe")
@@ -101,9 +118,11 @@ def main():
     clf = SachgruppenClassifier.load(args.model)
 
     print(f"Reproduziere Test-Split aus {args.csv} ...")
-    X_test, y_test = reproduce_test_split(args.csv, args.test_size)
+    X_test, y_test, y_train = reproduce_test_split(args.csv, args.test_size)
     y_true = y_test.to_numpy().astype(str)
     print(f"Test-Samples: {len(y_true)}")
+
+    print_baseline(y_train, y_true)
 
     print("Berechne Scores ...")
     scores, classes = class_scores(clf, X_test)

@@ -42,7 +42,7 @@ from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, MaxAbsScaler
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import matplotlib.pyplot as plt
@@ -269,9 +269,10 @@ class SachgruppenClassifier:
                  xgb_max_depth: int = 6,
                  xgb_learning_rate: float = 0.05,
                  xgb_subsample: float = 0.8,
-                 nn_hidden_layer_sizes: tuple = (200, 100, 50),
+                 nn_hidden_layer_sizes: tuple = (100,),
                  nn_alpha: float = 0.0001,
-                 nn_learning_rate_init: float = 0.001):
+                 nn_learning_rate_init: float = 0.0005,
+                 nn_n_iter_no_change: int = 5):
         """
         Args:
             model_type: 'svm', 'logistic', 'rf', 'xgboost', or 'nn' (neural network)
@@ -283,7 +284,9 @@ class SachgruppenClassifier:
             analyzer: TF-IDF analyzer: 'char_wb' (character n-grams) or 'word' (word-level)
             word_ngram_max: Max n for word analyzer (1=(1,1), 2=(1,2)); ignored for char_wb
             use_word_features: Extra word-level branch for bedeutung (char_wb mode only)
-            use_svd: Enable TruncatedSVD (LSA) after vectorization (recommended for XGBoost only)
+            use_svd: Enable TruncatedSVD (LSA) after vectorization (XGBoost: right after
+                vectorizer; NN: after the MaxAbsScaler, to compress the ~46k-dim sparse
+                input before the MLP)
             svd_components: Number of SVD dimensions (only relevant when use_svd=True)
             use_spacy: Add de_core_news_lg 300-dim word vectors on top of TF-IDF (+0.6 pp Top-1)
             use_dornseiff: Add Dornseiff gazetteer TF-IDF features on top of TF-IDF (+0.3 pp Top-1); loads from assets/dornseiff_gaz_cache.pkl
@@ -292,9 +295,10 @@ class SachgruppenClassifier:
             xgb_max_depth: Maximum tree depth for XGBoost (default: 6)
             xgb_learning_rate: Learning rate for XGBoost (default: 0.05)
             xgb_subsample: Row subsampling rate for XGBoost (default: 0.8)
-            nn_hidden_layer_sizes: MLP hidden layer sizes as tuple (default: (200, 100, 50))
+            nn_hidden_layer_sizes: MLP hidden layer sizes as tuple (default: (100,))
             nn_alpha: L2 regularization strength for MLP (default: 0.0001)
-            nn_learning_rate_init: Initial learning rate for MLP adam solver (default: 0.001)
+            nn_learning_rate_init: Initial learning rate for MLP adam solver (default: 0.0005)
+            nn_n_iter_no_change: Early-stopping patience for MLP, in epochs (default: 5)
         """
         self.model_type = model_type
         self.random_state = random_state
@@ -317,6 +321,7 @@ class SachgruppenClassifier:
         self.nn_hidden_layer_sizes = nn_hidden_layer_sizes
         self.nn_alpha = nn_alpha
         self.nn_learning_rate_init = nn_learning_rate_init
+        self.nn_n_iter_no_change = nn_n_iter_no_change
         self.pipeline = None
         self.classes_ = None
         self.label_encoder = None  # XGBoost only: string → integer encoding
@@ -461,7 +466,7 @@ class SachgruppenClassifier:
                 verbose=True,
                 early_stopping=True,
                 validation_fraction=0.1,
-                n_iter_no_change=5
+                n_iter_no_change=self.nn_n_iter_no_change
             )
 
         else:
@@ -477,6 +482,17 @@ class SachgruppenClassifier:
         if self.use_svd and self.model_type == 'xgboost':
             steps.append(('svd', TruncatedSVD(n_components=self.svd_components,
                                                random_state=self.random_state)))
+        if self.model_type == 'nn':
+            # MLP is scale-sensitive, unlike LinearSVC/LogisticRegression/trees. Without
+            # this, the dense spaCy/Dornseiff add-on blocks sit on a different scale than
+            # the sparse char_wb-TF-IDF blocks and destabilise gradient training.
+            # MaxAbsScaler keeps sparsity (unlike StandardScaler's mean-centering).
+            steps.append(('scaler', MaxAbsScaler()))
+            if self.use_svd:
+                # After scaling, not before: SVD is itself scale-sensitive, so it must see
+                # the aligned blocks, not the raw TF-IDF/spaCy/Dornseiff scale mismatch.
+                steps.append(('svd', TruncatedSVD(n_components=self.svd_components,
+                                                   random_state=self.random_state)))
         steps.append(('classifier', classifier))
         self.pipeline = Pipeline(steps)
         
@@ -848,6 +864,7 @@ class SachgruppenClassifier:
                 'nn_hidden_layer_sizes': self.nn_hidden_layer_sizes,
                 'nn_alpha': self.nn_alpha,
                 'nn_learning_rate_init': self.nn_learning_rate_init,
+                'nn_n_iter_no_change': self.nn_n_iter_no_change,
             }, f)
 
         print(f"\nModel saved: {filepath}")
@@ -888,6 +905,7 @@ class SachgruppenClassifier:
             nn_hidden_layer_sizes=data.get('nn_hidden_layer_sizes', (200, 100, 50)),
             nn_alpha=data.get('nn_alpha', 0.0001),
             nn_learning_rate_init=data.get('nn_learning_rate_init', 0.001),
+            nn_n_iter_no_change=data.get('nn_n_iter_no_change', 5),
         )
         instance.pipeline = data['pipeline']
         instance.classes_ = data['classes']
@@ -906,8 +924,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        use_spacy=False, use_dornseiff=False,
                        svm_c=1.0, xgb_n_estimators=300, xgb_max_depth=6,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
-                       nn_hidden_layer_sizes=(200, 100, 50), nn_alpha=0.0001,
-                       nn_learning_rate_init=0.001,
+                       nn_hidden_layer_sizes=(100,), nn_alpha=0.0001,
+                       nn_learning_rate_init=0.0005, nn_n_iter_no_change=5,
                        tune_n_iter=20, tune_cv=3,
                        progress_callback=None):
     """
@@ -1057,6 +1075,7 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         nn_hidden_layer_sizes=nn_hidden_layer_sizes,
         nn_alpha=nn_alpha,
         nn_learning_rate_init=nn_learning_rate_init,
+        nn_n_iter_no_change=nn_n_iter_no_change,
     )
     clf.train(X_train, y_train, tune_hyperparameters=tune,
               tune_n_iter=tune_n_iter, tune_cv=tune_cv,
@@ -1246,12 +1265,19 @@ if __name__ == '__main__':
                         help='XGBoost: learning rate')
     parser.add_argument('--xgb-subsample', type=float, default=0.8,
                         help='XGBoost: row subsampling rate')
-    parser.add_argument('--nn-hidden-layers', type=str, default='200,100,50',
-                        help='NN: hidden layer sizes as comma-separated integers (default: 200,100,50)')
+    parser.add_argument('--nn-hidden-layers', type=str, default='100',
+                        help='NN: hidden layer sizes as comma-separated integers (default: 100)')
     parser.add_argument('--nn-alpha', type=float, default=0.0001,
                         help='NN: L2 regularization strength (default: 0.0001)')
-    parser.add_argument('--nn-learning-rate-init', type=float, default=0.001,
-                        help='NN: initial learning rate for adam solver (default: 0.001)')
+    parser.add_argument('--nn-learning-rate-init', type=float, default=0.0005,
+                        help='NN: initial learning rate for adam solver (default: 0.0005)')
+    parser.add_argument('--nn-n-iter-no-change', type=int, default=5,
+                        help='NN: early-stopping patience in epochs (default: 5)')
+    parser.add_argument('--use-svd', action='store_true',
+                        help='Enable TruncatedSVD (LSA) dimensionality reduction (XGBoost: right '
+                             'after the vectorizer; NN: after the MaxAbsScaler)')
+    parser.add_argument('--svd-components', type=int, default=500,
+                        help='Number of SVD dimensions when --use-svd is set (default: 500)')
     parser.add_argument('--gpu', action='store_true',
                         help='GPU acceleration for XGBoost (requires CUDA/ROCm)')
 
@@ -1373,6 +1399,9 @@ if __name__ == '__main__':
                     nn_hidden_layer_sizes=args.nn_hidden_layer_sizes,
                     nn_alpha=args.nn_alpha,
                     nn_learning_rate_init=args.nn_learning_rate_init,
+                    nn_n_iter_no_change=args.nn_n_iter_no_change,
+                    use_svd=args.use_svd,
+                    svd_components=args.svd_components,
                     tune_n_iter=args.tune_n_iter,
                     tune_cv=tune_cv,
                     progress_callback=lambda pct, msg: _write_progress(
@@ -1416,6 +1445,9 @@ if __name__ == '__main__':
                 "nn_hidden_layer_sizes": list(args.nn_hidden_layer_sizes) if model == 'nn' else None,
                 "nn_alpha": args.nn_alpha if model == 'nn' else None,
                 "nn_learning_rate_init": args.nn_learning_rate_init if model == 'nn' else None,
+                "nn_n_iter_no_change": args.nn_n_iter_no_change if model == 'nn' else None,
+                "use_svd": args.use_svd,
+                "svd_components": args.svd_components if args.use_svd else None,
             }
             with open(f"{save_base}_metadata.json", "w", encoding="utf-8") as fh:
                 json.dump(metadata, fh, indent=2, ensure_ascii=False)

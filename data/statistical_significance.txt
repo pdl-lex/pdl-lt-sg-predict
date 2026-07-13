@@ -1,0 +1,49 @@
+================================================================================
+McNemar-Signifikanztests -- automatisch generierte Reports
+================================================================================
+
+Workflow zur Erzeugung eines neuen Eintrags in dieser Datei:
+
+  python scripts/predict_testset.py --models <a.pkl> <b.pkl> \
+      --csv data/baseline_test.csv --out data/predictions_XY.csv
+  python scripts/significance.py --predictions data/predictions_XY.csv \
+      --model-a <spaltenname_a> --model-b <spaltenname_b>
+
+Jeder Aufruf haengt unten einen neuen Report an (ueberschreibt nichts).
+
+================================================================================
+
+==============================================================================
+Statistischer Signifikanztest (McNemar) -- 2026-07-13 11:23
+==============================================================================
+
+Vergleich:
+  Modell A (Baseline):   nn_char_wb_ml1_sw0_20260709_230251
+                          Accuracy: 0.8301
+  Modell B (Vergleich):  nn_char_wb_ml1_sw0_20260710_000447
+                          Accuracy: 0.8375
+  Testset:               data/predictions_nn_addons.csv (24839 Beispiele)
+  Accuracy-Differenz:    +0.74 Prozentpunkte
+
+Was misst McNemar?
+  Der Test prueft, ob zwei Modelle auf DENSELBEN Testbeispielen unter-
+  schiedlich gut abschneiden. Faelle, in denen beide Modelle einig sind
+  (beide richtig oder beide falsch), tragen nichts zur Aussage bei -- nur
+  die Faelle, in denen sie sich widersprechen ("diskordant"), zaehlen.
+  Unter der Nullhypothese (kein echter Unterschied) sollten sich diese
+  Faelle etwa 50/50 auf "nur A richtig" und "nur B richtig" verteilen.
+
+Diskordante Faelle:
+  b =    514  (nur nn_char_wb_ml1_sw0_20260709_230251 richtig)
+  c =    697  (nur nn_char_wb_ml1_sw0_20260710_000447 richtig)
+  n = b + c = 1211
+
+Ergebnis:
+  p-Wert = 1.61e-07
+  *** SIGNIFIKANT (p < 0.05) ***
+  Die Aufteilung 514 vs. 697 weicht so stark von 50/50 ab, dass die
+  gemessene Differenz von +0.74 PP nicht durch Zufall/Testset-
+  Rauschen erklaerbar ist -- nn_char_wb_ml1_sw0_20260710_000447 ist mit hoher Sicherheit echt
+  besser als nn_char_wb_ml1_sw0_20260709_230251.
+
+==============================================================================

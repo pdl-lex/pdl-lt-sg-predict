@@ -20,11 +20,11 @@ class HyperParams(BaseModel):
     xgb_max_depth: int = 6
     xgb_learning_rate: float = 0.05
     xgb_subsample: float = 0.8
-    nn_hidden_layers: str = "200,100,50"
+    nn_hidden_layers: str = "100"
     nn_alpha: float = 0.0001
-    nn_learning_rate_init: float = 0.001
-    use_spacy: bool = False
-    use_dornseiff: bool = False
+    nn_learning_rate_init: float = 0.0005
+    use_spacy: bool = True
+    use_dornseiff: bool = True
 
 
 class SingleConfig(HyperParams):

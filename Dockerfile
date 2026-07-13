@@ -20,7 +20,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen
 
 # ML-Kern (Root-Module) und Fachlogik/API
-COPY sachgruppen_classifier.py shap_utils.py sachgruppen.csv stopwords_de.txt anleitung.md ./
+COPY sachgruppen_classifier.py shap_utils.py stopwords_de.txt anleitung.md ./
+COPY data/sachgruppen.csv ./data/sachgruppen.csv
 COPY assets/ ./assets/
 COPY pdl_lt_sg_predict/ ./pdl_lt_sg_predict/
 

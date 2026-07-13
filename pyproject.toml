@@ -28,7 +28,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",  # für starlette TestClient in den API-Tests
+    "httpx>=0.28.1", # für starlette TestClient in den API-Tests
+    "lxml>=6.1.1",
 ]
 
 [tool.setuptools]

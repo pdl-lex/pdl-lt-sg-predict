@@ -103,9 +103,9 @@ class TrainingManager:
             "--xgb-max-depth", str(cfg.get("xgb_max_depth", 6)),
             "--xgb-learning-rate", str(cfg.get("xgb_learning_rate", 0.05)),
             "--xgb-subsample", str(cfg.get("xgb_subsample", 0.8)),
-            "--nn-hidden-layers", str(cfg.get("nn_hidden_layers", "200,100,50")),
+            "--nn-hidden-layers", str(cfg.get("nn_hidden_layers", "100")),
             "--nn-alpha", str(cfg.get("nn_alpha", 0.0001)),
-            "--nn-learning-rate-init", str(cfg.get("nn_learning_rate_init", 0.001)),
+            "--nn-learning-rate-init", str(cfg.get("nn_learning_rate_init", 0.0005)),
             "--output-dir", str(MODELS_DIR),
             "--progress-file", str(progress_file),
         ]

@@ -24,8 +24,8 @@ Technik-Stack mit `pdl-lt-dictconsistency`:
 pdl-lt-sg-predict/
 ├── sachgruppen_classifier.py   # ML-Kernpipeline + CLI + Trainings-Worker (unverändert)
 ├── shap_utils.py               # SHAP-Erklärbarkeit
-├── sachgruppen.csv             # Taxonomie (Nummer → Sachgruppe, Hallig-Wartburg)
 ├── stopwords_de.txt, anleitung.md, README_CLI.md
+├── data/                       # Taxonomie + Trainingsdaten (sachgruppen.csv, woerterbuch_daten_*.csv)
 ├── assets/                     # Logo, Favicon, Dornseiff-Gazetteer-Cache
 ├── models/                     # Gespeicherte Modelle (*.pkl + *_metadata.json + *_report.txt)
 │

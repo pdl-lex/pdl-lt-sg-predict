@@ -1,0 +1,25 @@
+Baseline-Accuracy Sachgruppen-Klassifikation
+==================================================
+Datenquelle: data/woerterbuch_daten_124217.csv
+Split: test_size=0.2, random_state=42, stratifiziert (identisch zu train_and_evaluate() in sachgruppen_classifier.py)
+Trainingsset: 99378 Datensaetze -> data/baseline_training.csv
+Testset: 24839 Datensaetze -> data/baseline_test.csv
+Goldstandard: 1000 Datensaetze <- data/goldstandard.csv
+
+Haeufigste Klasse(n) im TRAINING (Basis der Vorhersage):
+  Top-1: 6333 (2372 Beispiele, 2.39% des Trainingssets)
+  Top-3: 6333 (2372, 2.39%), 5911 (2082, 2.10%), 7440 (2029, 2.04%) (Summe 6.52%)
+
+Baseline = Trefferquote dieser trainingsbasierten Klasse(n), gemessen je Zielset:
+==================================================
+Ziel: baseline_test.csv (Test-Split) (24839 Datensaetze)
+--------------------------------------------------
+  Top-1 (Klasse 6333): 593/24839 = 2.39%
+  Top-3 (Klassen 6333, 5911, 7440): 1622/24839 = 6.53%
+
+Ziel: goldstandard.csv (1000 Datensaetze)
+--------------------------------------------------
+  Top-1 (Klasse 6333): 7/1000 = 0.70%
+  Top-3 (Klassen 6333, 5911, 7440): 32/1000 = 3.20%
+
+Hinweis: Die Baseline ist die Trefferquote AUF DEM JEWEILIGEN ZIELSET, nicht der Trainingsset-Anteil. Weichen Testset- und Goldstandard-Werte voneinander ab, zeigt das einen Distributional Shift zwischen den beiden Zielsets.

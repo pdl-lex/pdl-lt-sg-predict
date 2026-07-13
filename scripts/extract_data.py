@@ -119,7 +119,7 @@ def main():
     )
     parser.add_argument(
         '-o', '--output',
-        default='woerterbuch_daten.csv',
+        default='data/woerterbuch_daten.csv',
         help='Pfad zur Ausgabe-CSV (Standard: %(default)s)'
     )
     args = parser.parse_args()

@@ -61,10 +61,10 @@ MODEL_DISPLAY_NAMES: dict[str, str] = dict(AVAILABLE_MODELS)
 
 @lru_cache(maxsize=1)
 def sachgruppen_map() -> dict[str, str]:
-    """Nummer -> Sachgruppen-Bezeichnung (aus sachgruppen.csv)."""
+    """Nummer -> Sachgruppen-Bezeichnung (aus data/sachgruppen.csv)."""
     import pandas as pd
 
-    csv_path = REPO_ROOT / "sachgruppen.csv"
+    csv_path = REPO_ROOT / "data" / "sachgruppen.csv"
     if not csv_path.exists():
         return {}
     df = pd.read_csv(csv_path, sep=";", dtype=str)
