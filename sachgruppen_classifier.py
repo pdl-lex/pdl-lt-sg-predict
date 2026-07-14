@@ -322,7 +322,7 @@ class SachgruppenClassifier:
         self.nn_n_iter_no_change = nn_n_iter_no_change
         self.pipeline = None
         self.classes_ = None
-        self.label_encoder = None  # XGBoost only: string → integer encoding
+        self.label_encoder = None  # XGBoost/NN/RF: string → integer encoding
         self.best_params_: dict = {}   # Best params after auto-tune (empty if not tuned)
         self.best_cv_score_: float = 0.0
         self.eval_metrics_: dict = {}  # Top-k / hierarchy / confidence (set by evaluate())
@@ -517,8 +517,10 @@ class SachgruppenClassifier:
         print(f"Training samples: {len(X_train)}")
         print(f"Number of classes: {len(np.unique(y_train))}")
 
-        # XGBoost and Neural Network require integer labels
-        if self.model_type in ['xgboost', 'nn']:
+        # XGBoost and Neural Network require integer labels; RandomForest needs it too
+        # because sklearn's class_weight='balanced' errors on all-digit string labels
+        # (e.g. "1000") -- see RandomForestClassifier._validate_y_class_weight.
+        if self.model_type in ['xgboost', 'nn', 'rf']:
             self.label_encoder = LabelEncoder()
             y_train_encoded = self.label_encoder.fit_transform(y_train)
             print(f"Labels encoded for {self.model_type.upper()} (string → integer)")
@@ -650,8 +652,8 @@ class SachgruppenClassifier:
         if self.pipeline is None:
             raise ValueError("Model must be trained first!")
 
-        # XGBoost and Neural Network: encode labels and filter unknown ones
-        if self.model_type in ['xgboost', 'nn'] and self.label_encoder is not None:
+        # XGBoost, Neural Network and RandomForest: encode labels and filter unknown ones
+        if self.model_type in ['xgboost', 'nn', 'rf'] and self.label_encoder is not None:
             known_labels = set(self.label_encoder.classes_)
             mask = y_test.isin(known_labels)
 
@@ -786,8 +788,8 @@ class SachgruppenClassifier:
 
         predictions = self.pipeline.predict(texts)
 
-        # Decode integer predictions back to string labels for XGBoost/NN
-        if self.model_type in ['xgboost', 'nn'] and self.label_encoder is not None:
+        # Decode integer predictions back to string labels for XGBoost/NN/RF
+        if self.model_type in ['xgboost', 'nn', 'rf'] and self.label_encoder is not None:
             predictions = self.label_encoder.inverse_transform(predictions)
 
         return predictions
@@ -844,7 +846,7 @@ class SachgruppenClassifier:
                 'pipeline': self.pipeline,
                 'model_type': self.model_type,
                 'classes': self.classes_,
-                'label_encoder': self.label_encoder,  # XGBoost only
+                'label_encoder': self.label_encoder,  # XGBoost/NN/RF
                 'use_gpu': self.use_gpu,
                 'use_lemma': self.use_lemma,
                 'remove_stopwords': self.remove_stopwords,
@@ -911,7 +913,7 @@ class SachgruppenClassifier:
         )
         instance.pipeline = data['pipeline']
         instance.classes_ = data['classes']
-        instance.label_encoder = data.get('label_encoder', None)  # XGBoost only
+        instance.label_encoder = data.get('label_encoder', None)  # XGBoost/NN/RF
 
         print(f"Model loaded: {filepath}")
         return instance
