@@ -133,12 +133,18 @@ class TrainingManager:
             "--min-length", str(cfg.get("min_word_length", 1)),
             "--stopwords", "true" if cfg.get("use_stopword_removal") else "false",
         ]
+        cv_folds = max(2, int(cfg.get("cv_folds", 5)))
+        if cfg.get("cross_validate"):
+            cmd += ["--cross-validate", "--cv-folds", str(cv_folds)]
 
         # Zeitschätzung für die geglättete Fortschrittsanzeige.
         est = self.time_per_type.get(cfg.get("model", "svm"),
                                      _TIME_FALLBACKS.get(cfg.get("model", "svm"), 120.0))
         if cfg.get("tune_mode") == "auto":
             est *= max(cfg.get("tune_n_iter", 20) * cfg.get("tune_cv", 3) / 5, 1.0)
+        if cfg.get("cross_validate"):
+            # CV trainiert das Modell zusätzlich cv_folds-mal auf (annähernd) allen Daten.
+            est *= 1 + cv_folds
         self._launch(cmd, progress_file, mode="single", estimated_fit_sec=max(est * 0.7, 1.0))
         return {"status": "started", "mode": "single"}
 
@@ -220,6 +226,8 @@ class TrainingManager:
             "accuracy": prog.get("accuracy", 0.0),
             "training_time": prog.get("training_time", 0.0),
         }
+        if prog.get("cross_validation"):
+            result["cross_validation"] = prog["cross_validation"]
         # Beste Parameter (Auto-Tune) aus Metadaten ergänzen.
         if model_file:
             meta_path = Path(model_file.replace(".pkl", "_metadata.json"))

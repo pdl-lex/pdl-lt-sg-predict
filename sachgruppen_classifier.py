@@ -763,23 +763,87 @@ class SachgruppenClassifier:
             lines.append(f"  {cov:>4} Abdeckung  ->  {acc:.4f} Accuracy")
         return "\n".join(lines)
     
-    def cross_validate(self, X, y, cv=5):
-        """Run cross-validation."""
+    def cross_validate(self, X, y, cv=5, scoring='accuracy'):
+        """Run stratified k-fold cross-validation on a fresh clone of the pipeline.
+
+        Unlike a single train/test split, this trains and evaluates ``cv`` times so
+        the returned mean is less dependent on one arbitrary split and the standard
+        deviation quantifies how much the estimate varies across folds.
+
+        Notes / caveats:
+          * The pipeline is cloned per fold (``cross_val_score`` does this), so the
+            model already fitted on the training split is left untouched.
+          * Labels are LabelEncoded to contiguous integers 0..M-1. This is required
+            by XGBoost and harmless for the other model types; it also matches how
+            ``train`` encodes labels for xgboost/nn/rf.
+          * StratifiedKFold needs at least ``cv`` samples per class, so classes with
+            fewer members are excluded from the CV estimate (and counted below). The
+            single-split accuracy in the report still covers all classes.
+          * ``shuffle=True`` with a fixed ``random_state`` keeps the fold assignment
+            reproducible across runs (comparable to the fixed split seed).
+
+        Returns a dict with the per-fold scores, mean, std and exclusion counts.
+        """
+        from sklearn.base import clone
+        from sklearn.model_selection import StratifiedKFold
+        from sklearn.preprocessing import LabelEncoder
+
         if self.pipeline is None:
             self.create_pipeline()
 
-        print(f"\nRunning {cv}-fold cross-validation...")
+        # Align to positional indexing so the boolean mask works regardless of the
+        # original DataFrame/Series index.
+        X = X.reset_index(drop=True) if hasattr(X, 'reset_index') else X
+        y = pd.Series(y).astype(str).reset_index(drop=True)
+
+        counts = y.value_counts()
+        keep_classes = counts[counts >= cv].index
+        mask = y.isin(keep_classes).to_numpy()
+        n_excluded_classes = int((counts < cv).sum())
+        n_excluded_samples = int((~mask).sum())
+
+        X_cv = X[mask]
+        y_cv = y[mask]
+        n_classes = int(y_cv.nunique())
+
+        if n_classes < 2 or len(y_cv) < cv:
+            print("Cross-validation skipped: too few usable classes/samples "
+                  f"(classes={n_classes}, samples={len(y_cv)}).")
+            return {
+                'ok': False, 'cv': cv, 'scoring': scoring,
+                'n_excluded_classes': n_excluded_classes,
+                'n_excluded_samples': n_excluded_samples,
+                'n_used_samples': int(mask.sum()),
+                'n_used_classes': n_classes,
+            }
+
+        y_enc = LabelEncoder().fit_transform(y_cv)
+
+        if n_excluded_samples:
+            print(f"Cross-validation: {n_excluded_samples} samples from "
+                  f"{n_excluded_classes} rare classes (< {cv} samples) excluded.")
+        print(f"\nRunning {cv}-fold cross-validation (scoring={scoring})...")
+        skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.random_state)
         scores = cross_val_score(
-            self.pipeline, X, y,
-            cv=cv,
-            scoring='f1_weighted',
-            n_jobs=-1
+            clone(self.pipeline), X_cv, y_enc,
+            cv=skf,
+            scoring=scoring,
+            n_jobs=-1,
         )
 
-        print(f"F1 scores: {scores}")
+        print(f"Scores: {scores}")
         print(f"Mean: {scores.mean():.4f} (+/- {scores.std():.4f})")
-        
-        return scores
+
+        return {
+            'ok': True, 'cv': cv, 'scoring': scoring,
+            'scores': [float(s) for s in scores],
+            'mean': float(scores.mean()),
+            'std': float(scores.std()),
+            'n_excluded_classes': n_excluded_classes,
+            'n_excluded_samples': n_excluded_samples,
+            'n_used_samples': int(mask.sum()),
+            'n_used_classes': n_classes,
+        }
     
     def predict(self, texts):
         """Predict labels for new texts."""
@@ -931,13 +995,21 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        nn_hidden_layer_sizes=(100,), nn_alpha=0.0001,
                        nn_learning_rate_init=0.0005, nn_n_iter_no_change=5,
                        tune_n_iter=20, tune_cv=3,
+                       cross_validate=False, cv_folds=5,
                        progress_callback=None):
     """
     Main function for training and evaluation.
 
     Args:
         use_gpu: Enable GPU acceleration (XGBoost only)
+        cross_validate: Additionally run stratified k-fold CV on the full data for a
+            split-independent estimate (trains the model cv_folds extra times).
+        cv_folds: Number of folds for the optional cross-validation.
         progress_callback: Optional function(pct: int, msg: str) for progress reporting
+
+    Returns:
+        (clf, accuracy, report_str, cv_results) where cv_results is None unless
+        cross_validate=True.
     """
     def _cb(pct: int, msg: str):
         if progress_callback:
@@ -1008,8 +1080,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     # "Familienname" 1400+ times). The random split puts identical glosses in
     # both train and test, so the reported test accuracy is inflated by
     # memorization. For an honest generalization estimate use the goldstandard
-    # evaluation (scripts/evaluate_goldstandard_nn.py); the gap is quantified
-    # in scripts/diagnose_goldstandard_gap.py.
+    # evaluation (analysis/evaluate_goldstandard_nn.py); the gap is quantified
+    # in analysis/diagnose_goldstandard_gap.py.
     class_counts = y.value_counts()
     single_sample_classes = class_counts[class_counts == 1].index
 
@@ -1097,13 +1169,41 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     _cb(85, "Evaluiere Modell…")
     accuracy, y_pred, report_str = clf.evaluate(X_test, y_test)
 
+    # Optional: split-independent estimate via stratified k-fold CV on all data.
+    cv_results = None
+    if cross_validate:
+        _cb(88, f"Cross-Validierung ({cv_folds} Folds)…")
+        cv_results = clf.cross_validate(X, y, cv=cv_folds, scoring='accuracy')
+        report_str = report_str + "\n\n" + _format_cv_results(cv_results)
+
     # Save
     _cb(95, "Speichere Modell…")
     if save_path:
         clf.save(save_path)
 
     _cb(100, "Fertig!")
-    return clf, accuracy, report_str
+    return clf, accuracy, report_str, cv_results
+
+
+def _format_cv_results(cv: dict) -> str:
+    """Render the cross-validation dict as a text block for the report file."""
+    if not cv:
+        return ""
+    lines = ["=" * 60, "CROSS-VALIDIERUNG", "=" * 60]
+    if not cv.get('ok'):
+        lines.append("Übersprungen: zu wenige nutzbare Klassen/Samples.")
+        return "\n".join(lines)
+    folds = "  ".join(f"{s:.4f}" for s in cv['scores'])
+    lines += [
+        f"{cv['cv']}-fold stratified, scoring={cv['scoring']}",
+        f"Fold-Werte: {folds}",
+        f"Mittel: {cv['mean']:.4f} (+/- {cv['std']:.4f})",
+        f"Genutzt: {cv['n_used_samples']} Samples / {cv['n_used_classes']} Klassen",
+    ]
+    if cv['n_excluded_samples']:
+        lines.append(f"Ausgeschlossen (< {cv['cv']} Samples/Klasse): "
+                     f"{cv['n_excluded_samples']} Samples / {cv['n_excluded_classes']} Klassen")
+    return "\n".join(lines)
 
 
 def predict_interactive(model_path):
@@ -1266,6 +1366,14 @@ if __name__ == '__main__':
     parser.add_argument('--tune-cv', type=int, default=3,
                         help='Number of CV folds for auto-tune (min. 2)')
 
+    # --- Cross-validation (split-independent evaluation) ---
+    parser.add_argument('--cross-validate', action='store_true',
+                        help='Additionally run stratified k-fold CV on the full data '
+                             '(split-independent accuracy estimate; trains the model '
+                             '--cv-folds extra times)')
+    parser.add_argument('--cv-folds', type=int, default=5,
+                        help='Number of folds for --cross-validate (min. 2)')
+
     # --- Model-specific parameters ---
     parser.add_argument('--svm-c', type=float, default=1.0,
                         help='SVM regularization parameter C')
@@ -1360,7 +1468,8 @@ if __name__ == '__main__':
         def _write_progress(pct: int, msg: str, done: bool = False,
                             accuracy: float = 0.0, model_file: str = '',
                             training_time: float = 0.0, error: str = '',
-                            config_idx: int = 0, config_total: int = 0):
+                            config_idx: int = 0, config_total: int = 0,
+                            cross_validation=None):
             if not _pf:
                 return
             try:
@@ -1370,6 +1479,7 @@ if __name__ == '__main__':
                         'accuracy': accuracy, 'model_file': model_file,
                         'training_time': training_time, 'error': error,
                         'config_idx': config_idx, 'config_total': config_total,
+                        'cross_validation': cross_validation,
                     }, _f)
             except OSError:
                 pass
@@ -1389,14 +1499,19 @@ if __name__ == '__main__':
             save_path = os.path.join(args.output_dir, f"{stem}.pkl")
 
             _start = _time.time()
+            # Cross-validation only for a single configuration (would multiply an
+            # already-expensive batch by cv_folds); batch is itself a comparison grid.
+            do_cv = args.cross_validate and not batch_mode
             try:
-                clf, accuracy, report_str = train_and_evaluate(
+                clf, accuracy, report_str, cv_results = train_and_evaluate(
                     args.csv,
                     model_type=model,
                     test_size=args.test_size,
                     tune=args.tune,
                     save_path=save_path,
                     use_gpu=args.gpu,
+                    cross_validate=do_cv,
+                    cv_folds=max(2, args.cv_folds),
                     remove_stopwords=sw,
                     min_word_length=min_len,
                     analyzer=analyzer,
@@ -1460,6 +1575,7 @@ if __name__ == '__main__':
                 "nn_n_iter_no_change": args.nn_n_iter_no_change if model == 'nn' else None,
                 "use_svd": args.use_svd,
                 "svd_components": args.svd_components if args.use_svd else None,
+                "cross_validation": cv_results,
             }
             with open(f"{save_base}_metadata.json", "w", encoding="utf-8") as fh:
                 json.dump(metadata, fh, indent=2, ensure_ascii=False)
@@ -1479,7 +1595,8 @@ if __name__ == '__main__':
                             done=not batch_mode,
                             accuracy=accuracy, model_file=save_path,
                             training_time=training_time,
-                            config_idx=i, config_total=total)
+                            config_idx=i, config_total=total,
+                            cross_validation=cv_results)
 
         if batch_mode:
             print(f"\n{'='*60}")

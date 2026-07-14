@@ -33,6 +33,8 @@ class SingleConfig(HyperParams):
     word_ngram_max: int = 1
     min_word_length: int = 1
     use_stopword_removal: bool = False
+    cross_validate: bool = False  # zusätzliche split-unabhängige k-fold-Bewertung
+    cv_folds: int = 5
 
 
 class BatchConfig(HyperParams):

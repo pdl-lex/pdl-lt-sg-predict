@@ -64,6 +64,20 @@ export interface TrainingStatus {
   training_time?: number
   best_cv_score?: number
   best_params?: Record<string, unknown>
+  cross_validation?: CrossValidation
+}
+
+export interface CrossValidation {
+  ok: boolean
+  cv: number
+  scoring: string
+  scores?: number[]
+  mean?: number
+  std?: number
+  n_excluded_classes: number
+  n_excluded_samples: number
+  n_used_samples: number
+  n_used_classes: number
 }
 
 // ── API ──────────────────────────────────────────────────────────────────────

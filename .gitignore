@@ -49,3 +49,5 @@ woerterbuch_daten_*.csv
 test_output.csv
 
 start.txt
+
+analysis/

@@ -1,7 +1,7 @@
 import {
   createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode,
 } from 'react'
-import { api, ApiError, type TrainingCsvInfo, type TrainingStatus } from '../api/client'
+import { api, ApiError, type CrossValidation, type TrainingCsvInfo, type TrainingStatus } from '../api/client'
 import { Icon } from '../design/icons'
 import {
   Badge, Callout, Checkbox, Field, GhostButton, MonoBadge, PrimaryButton,
@@ -32,6 +32,7 @@ const analyzerVariants = (analyzers: string[]) =>
 interface Cfg {
   model: string; test_size: number; use_stopword_removal: boolean; min_word_length: number
   analyzer_mode: string; word_ngram_max: number; use_spacy: boolean; use_dornseiff: boolean
+  cross_validate: boolean; cv_folds: number
   tune_mode: string; tune_n_iter: number; tune_cv: number
   svm_c: string; xgb_n_estimators: string; xgb_max_depth: string; xgb_learning_rate: string; xgb_subsample: string
   nn_hidden_layers: string; nn_alpha: string; nn_learning_rate_init: string
@@ -41,6 +42,7 @@ interface Cfg {
 const DEFAULT_CFG: Cfg = {
   model: 'svm', test_size: 0.2, use_stopword_removal: false, min_word_length: 1,
   analyzer_mode: 'char_wb', word_ngram_max: 1, use_spacy: true, use_dornseiff: true,
+  cross_validate: false, cv_folds: 5,
   tune_mode: 'standard', tune_n_iter: 20, tune_cv: 3,
   svm_c: '1.0', xgb_n_estimators: '300', xgb_max_depth: '6', xgb_learning_rate: '0.05', xgb_subsample: '0.8',
   nn_hidden_layers: '100', nn_alpha: '0.0001', nn_learning_rate_init: '0.0005',
@@ -195,6 +197,18 @@ export function TrainingConfig() {
           <Toggle checked={cfg.use_spacy} onChange={(v) => set('use_spacy', v)} label="spaCy-Wortvektoren (de_core_news_lg)" />
           <Toggle checked={cfg.use_dornseiff} onChange={(v) => set('use_dornseiff', v)} label="Dornseiff-Thesaurus" />
         </div>
+        <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Cross-Validierung</div>
+          <Toggle checked={cfg.cross_validate} onChange={(v) => set('cross_validate', v)}
+            label="Zusätzliche k-fold-Bewertung (split-unabhängig)" />
+          {cfg.cross_validate && (
+            <>
+              <Field label="Folds (k)"><input type="number" min={2} max={20} value={cfg.cv_folds}
+                onChange={(e) => set('cv_folds', Math.max(2, Number(e.target.value)))} style={numInput} /></Field>
+              <Callout tone="warn" icon="warn">Dauer ≈ (1 + k) × Einzeltraining. Nur Einzeltraining, nicht im Batch.</Callout>
+            </>
+          )}
+        </div>
       </SectionFold>
 
       {/* Hyperparameter-Tuning */}
@@ -336,6 +350,7 @@ export function TrainingMain() {
                   </div>
                 </div>
               )}
+              {status.cross_validation && <CrossValBlock cv={status.cross_validation} splitAccuracy={status.accuracy ?? 0} />}
             </div>
           </Callout>
         )}
@@ -350,6 +365,33 @@ export function TrainingMain() {
         )}
       </div>
     </ResultsFrame>
+  )
+}
+
+function CrossValBlock({ cv, splitAccuracy }: { cv: CrossValidation; splitAccuracy: number }) {
+  if (!cv.ok) {
+    return (
+      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--lt-fg-3)' }}>
+        Cross-Validierung übersprungen (zu wenige nutzbare Klassen/Samples für {cv.cv} Folds).
+      </div>
+    )
+  }
+  const mean = cv.mean ?? 0
+  const std = cv.std ?? 0
+  const delta = splitAccuracy - mean
+  return (
+    <div style={{ marginTop: 6, borderTop: '1px dashed var(--lt-line-1)', paddingTop: 6 }}>
+      <div style={{ fontWeight: 600 }}>
+        Cross-Validierung ({cv.cv}-fold, {cv.scoring}): {mean.toFixed(4)} <span style={{ color: 'var(--lt-fg-3)' }}>± {std.toFixed(4)}</span>
+      </div>
+      <div style={{ fontFamily: 'var(--lt-font-mono)', fontSize: 11.5, color: 'var(--lt-fg-3)' }}>
+        Folds: {(cv.scores ?? []).map((s) => s.toFixed(4)).join('  ·  ')}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--lt-fg-3)', marginTop: 2 }}>
+        Einzel-Split vs. CV-Mittel: Δ {delta >= 0 ? '+' : ''}{delta.toFixed(4)}
+        {cv.n_excluded_samples > 0 && ` · ${cv.n_excluded_samples} Samples / ${cv.n_excluded_classes} seltene Klassen ausgeschlossen`}
+      </div>
+    </div>
   )
 }
 
