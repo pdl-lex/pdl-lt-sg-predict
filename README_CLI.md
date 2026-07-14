@@ -1,16 +1,17 @@
 # Sachgruppen-Klassifikation – CLI-Referenz
 
 Das Skript `sachgruppen_classifier.py` kann direkt über die Kommandozeile genutzt werden,
-ohne die Reflex-Web-App zu starten. Das ist besonders praktisch für das Training auf
-Remote-Servern (z. B. LRZ-VM).
+ohne das Web-Backend (FastAPI) zu starten. Das ist besonders praktisch für das Training
+auf Remote-Servern (z. B. LRZ-VM).
 
 ## Voraussetzungen
 
 ```bash
-# Abhängigkeiten installieren (ohne Reflex)
-pip install scikit-learn pandas numpy tqdm xgboost shap
+# Abhängigkeiten installieren (spaCy + Sprachmodell nur bei --use-spacy nötig)
+pip install scikit-learn pandas numpy tqdm xgboost shap spacy
+pip install https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
 
-# oder via uv (aus pyproject.toml, Reflex wird trotzdem installiert)
+# oder via uv (aus pyproject.toml, installiert alles inkl. spaCy-Modell)
 uv sync
 ```
 
@@ -68,6 +69,15 @@ models/svm_char_wb_ml1_sw0_20260327_142301_report.txt
 | `--min-length N` | `1` | Wörter kürzer als N werden gefiltert |
 | `--stopwords true\|false` | `false` | Deutsche Stopwörter entfernen |
 
+### Semantische Anreicherung
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--use-spacy` | – | spaCy-Wortvektoren (de_core_news_lg, 300 dim) zusätzlich zu TF-IDF (+0,6 pp Top-1) |
+| `--use-dornseiff` | – | Dornseiff-Gazetteer-Features zusätzlich zu TF-IDF (+0,3 pp Top-1); lädt `assets/dornseiff_gaz_cache.pkl` |
+| `--use-svd` | – | TruncatedSVD-Dimensionsreduktion (NN und XGBoost) |
+| `--svd-components N` | `500` | Anzahl SVD-Komponenten bei `--use-svd` |
+
 ### Auto-Tune (RandomizedSearchCV)
 
 | Parameter | Standard | Beschreibung |
@@ -90,6 +100,10 @@ was den Faktor effektiv auf `ceil(n-iter × cv / 20)` reduziert.
 | `--xgb-learning-rate FLOAT` | `0.05` | XGBoost: Lernrate |
 | `--xgb-subsample FLOAT` | `0.8` | XGBoost: Anteil der Trainingsdaten pro Baum |
 | `--gpu` | – | XGBoost GPU-Beschleunigung (erfordert CUDA/ROCm) |
+| `--nn-hidden-layers STR` | `100` | NN: Hidden-Layer-Größen, kommasepariert (z. B. `200,100,50`) |
+| `--nn-alpha FLOAT` | `0.0001` | NN: L2-Regularisierung |
+| `--nn-learning-rate-init FLOAT` | `0.0005` | NN: initiale Lernrate |
+| `--nn-n-iter-no-change N` | `5` | NN: Early-Stopping-Geduld (Epochen ohne Verbesserung) |
 
 ### Benachrichtigung
 

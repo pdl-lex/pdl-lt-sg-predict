@@ -58,14 +58,14 @@ Ensemble aus 100 Entscheidungsbäumen (max. Tiefe 20). Parallelisiert über alle
 - **Trainingsdauer** (~113k Samples): ca. 30 Sekunden.
 
 ### Neural Network / MLP (`nn`)
-Mehrschichtiges Perceptron (200→100→50 Neuronen, ReLU, Adam). Stoppt automatisch bei Stagnation (Early Stopping).
+Mehrschichtiges Perceptron (Standard: eine Schicht mit 100 Neuronen, ReLU, Adam; weitere Schichten über die Hyperparameter konfigurierbar). Stoppt automatisch bei Stagnation (Early Stopping).
 
 - **Stärken:** Kann nicht-lineare Muster lernen.
 - **Schwächen:** Braucht viele Daten, Training dauert länger, schwerer zu interpretieren.
 - **Trainingsdauer** (~113k Samples): ca. 2 Minuten.
 
 ### XGBoost (`xgboost`)
-Gradient-Boosted Trees (100 Bäume, max. Tiefe 10). Oft die höchste Accuracy, aber sehr langsam.
+Gradient-Boosted Trees (Standard: 300 Bäume, max. Tiefe 6). Oft die höchste Accuracy, aber sehr langsam.
 
 - **Stärken:** Häufig beste Accuracy aller Modelle.
 - **Schwächen:** Sehr langsames Training, hoher Speicherbedarf.
@@ -118,16 +118,19 @@ Die Analyse-Seite zeigt alle gespeicherten Modelle in einer Tabelle. Die Tabelle
 | Spalte | Bedeutung |
 |:---|:---|
 | Datei | Dateiname des gespeicherten Modells (`.pkl`) |
-| Model | Algorithmus-Name |
+| Modell | Algorithmus-Name |
 | Accuracy | Anteil korrekt klassifizierter Test-Samples |
-| Training Time | Dauer des Trainings (HH:MM:SS) |
-| Date | Datum des Trainings |
+| Zeit | Dauer des Trainings (HH:MM:SS) |
+| Datum | Datum des Trainings |
 | Samples | Anzahl der Trainingssamples |
-| Classes | Anzahl der Sachgruppen im Trainingsset |
-| Test-Split | Verwendeter Test-Anteil |
-| Stopwords entf. | Wurden Stoppwörter entfernt? |
-| Min. Wortlänge | Verwendete Mindestlänge |
+| Klassen | Anzahl der Sachgruppen im Trainingsset |
+| Test | Verwendeter Test-Anteil |
+| Lemma | Wurde das Lemma als Feature genutzt? |
+| spaCy | Semantische Anreicherung: spaCy-Wortvektoren aktiv? |
+| Dornseiff | Semantische Anreicherung: Dornseiff-Gazetteer aktiv? |
+| Min-Länge | Verwendete Mindest-Wortlänge |
 | Analyzer | Verwendeter Analyzer |
+| Stoppw. | Wurden Stoppwörter entfernt? |
 
 **Modell auswählen:** Durch Klick auf eine Zeile (oder die Checkbox) wird das Modell markiert. Es erscheinen zwei Buttons:
 - **Klassifikations-Report**: Öffnet den detaillierten Report (→ Abschnitt 6).
@@ -192,7 +195,9 @@ Die Datei `.env` im Projektordner enthält die Laufzeitkonfiguration:
 
 | Variable | Bedeutung | Beispiel |
 |:---|:---|:---|
-| `MODELS_DIR` | Verzeichnis zur Speicherung der trainierten Modelle. Sollte außerhalb des Projektordners liegen, um Reflex-Hot-Reload bei neuen Modellen zu vermeiden. Bei relativem Pfad: relativ zum Projektordner. | `models` oder `/data/sg-models` |
+| `MODELS_DIR` | Verzeichnis zur Speicherung der trainierten Modelle (im Entwicklungsbetrieb außerhalb des Projektordners sinnvoll, damit `uvicorn --reload` bei neuen Modellen nicht neu startet). Bei relativem Pfad: relativ zum Projektordner. | `models` oder `/data/sg-models` |
 | `ENABLE_TRAINING` | Aktiviert oder deaktiviert die Training-Funktionalität. Auf schwachen VMs oder Produktionssystemen auf `False` setzen. | `True` / `False` |
+| `SESSIONS_DIR` | Verzeichnis für Uploads und Trainings-Fortschrittsdateien. Bei relativem Pfad: relativ zum Projektordner. | `.sessions` |
+| `CORS_ORIGINS` | Erlaubte CORS-Origins (kommasepariert); nur für den Vite-Dev-Server nötig, in Produktion liefert das Backend das Frontend same-origin aus. | `http://localhost:5173` |
 
 Nach Änderungen an `.env` muss die Anwendung neu gestartet werden.
