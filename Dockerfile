@@ -41,4 +41,6 @@ COPY --from=frontend /frontend/dist ./frontend/dist
 EXPOSE 8000
 
 # FastAPI liefert die API unter /api und das Frontend unter / aus.
-CMD ["uv", "run", "uvicorn", "pdl_lt_sg_predict.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# uvicorn direkt aus dem venv: kein uv-Sync/Rebuild beim Container-Start
+# (uv run wuerde sonst bei jedem Start das Projekt neu bauen und ggf. Netz brauchen).
+CMD ["/app/.venv/bin/uvicorn", "pdl_lt_sg_predict.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
