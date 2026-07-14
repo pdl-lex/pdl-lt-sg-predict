@@ -1,0 +1,30 @@
+# Build-Context klein halten: models/, .venv/ und .git/ sind zusammen ~8 GB
+# und werden im Image nicht gebraucht (Modelle kommen als Volume, s. Dockerfile).
+.git
+.gitignore
+.venv
+.vscode
+.claude
+.sessions
+.env
+__pycache__
+**/__pycache__
+models
+frontend/node_modules
+frontend/dist
+pdl_lt_sg_predict_app
+scripts
+test
+tests
+*.epub
+*.md
+!anleitung.md
+start.txt
+
+# Zur Laufzeit wird aus data/ nur die Sachgruppen-Taxonomie gelesen.
+data/*
+!data/sachgruppen.csv
+
+# Aus assets/ braucht der ML-Kern nur den Dornseiff-Gazetteer.
+assets/*
+!assets/dornseiff_gaz_cache.pkl

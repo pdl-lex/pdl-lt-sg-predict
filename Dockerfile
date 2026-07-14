@@ -1,8 +1,8 @@
 # ---- Stage 1: Frontend bauen (React + Vite) ----
 FROM node:22-slim AS frontend
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
@@ -22,7 +22,7 @@ RUN uv sync --no-dev --frozen
 # ML-Kern (Root-Module) und Fachlogik/API
 COPY sachgruppen_classifier.py shap_utils.py stopwords_de.txt anleitung.md ./
 COPY data/sachgruppen.csv ./data/sachgruppen.csv
-COPY assets/ ./assets/
+COPY assets/dornseiff_gaz_cache.pkl ./assets/dornseiff_gaz_cache.pkl
 COPY pdl_lt_sg_predict/ ./pdl_lt_sg_predict/
 
 # Die gepickelten Modelle werden NICHT ins Image kopiert, sondern zur Laufzeit
