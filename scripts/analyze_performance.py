@@ -153,7 +153,7 @@ def plot_class_distribution(class_counts, top_n=30):
     plt.xscale('log')
     
     plt.tight_layout()
-    plt.savefig('/mnt/user-data/outputs/class_distribution.png', dpi=150, bbox_inches='tight')
+    plt.savefig('class_distribution.png', dpi=150, bbox_inches='tight')
     print("\n✓ Visualisierung gespeichert: class_distribution.png")
 
 def identify_confused_classes(y_true, y_pred, top_n=10):

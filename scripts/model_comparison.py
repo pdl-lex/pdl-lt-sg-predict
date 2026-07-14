@@ -81,7 +81,7 @@ def compare_models(csv_file, save_models=True, test_size=0.2):
 
             # Training & Evaluation
             save_path = f"models/model_{model_type}.pkl" if save_models else None
-            clf, accuracy = train_and_evaluate(
+            clf, accuracy, _report = train_and_evaluate(
                 csv_file,
                 model_type=model_type,
                 test_size=test_size,
@@ -205,7 +205,7 @@ def quick_comparison(csv_file):
 
         try:
             start_time = time.time()
-            clf, accuracy = train_and_evaluate(
+            clf, accuracy, _report = train_and_evaluate(
                 csv_file,
                 model_type=model_type,
                 test_size=0.2,

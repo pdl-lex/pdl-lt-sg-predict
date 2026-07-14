@@ -1,11 +1,8 @@
 """
-Gepaarte Signifikanztests fuer zwei Klassifikator-Varianten auf demselben Testset.
+Gepaarter Signifikanztest (McNemar) fuer zwei Klassifikator-Varianten auf
+demselben Testset: Top-1-Accuracy, binaer richtig/falsch pro Beispiel.
 
-Zwei Tests, je nach Metrik:
-  - mcnemar_test():      Top-1-Accuracy (binaer richtig/falsch pro Beispiel)
-  - paired_bootstrap():  beliebige Metrik (z.B. macro-F1), per Testset-Resampling
-
-Beide nutzen aus, dass Baseline und Variante auf denselben Testbeispielen
+Der Test nutzt aus, dass Baseline und Variante auf denselben Testbeispielen
 ausgewertet werden (gepaarter Vergleich) statt sie wie unabhaengige Stichproben
 zu behandeln -- das ist der uebliche Fehler, der reale Unterschiede als
 "Rauschen" erscheinen laesst.
@@ -32,40 +29,6 @@ def mcnemar_test(y_true, pred_a, pred_b):
         return {"b": b, "c": c, "n_discordant": 0, "p_value": 1.0}
     p_value = binomtest(min(b, c), n, 0.5, alternative="two-sided").pvalue
     return {"b": b, "c": c, "n_discordant": n, "p_value": p_value}
-
-
-def paired_bootstrap(y_true, pred_a, pred_b, metric_fn, n_boot=2000, seed=42):
-    """95%-CI und p-Wert fuer die Differenz metric(b) - metric(a) per Testset-Resampling."""
-    rng = np.random.default_rng(seed)
-    y_true = np.asarray(y_true)
-    pred_a = np.asarray(pred_a)
-    pred_b = np.asarray(pred_b)
-    n = len(y_true)
-    observed_diff = metric_fn(y_true, pred_b) - metric_fn(y_true, pred_a)
-    diffs = np.empty(n_boot)
-    for i in range(n_boot):
-        idx = rng.integers(0, n, n)
-        diffs[i] = metric_fn(y_true[idx], pred_b[idx]) - metric_fn(y_true[idx], pred_a[idx])
-    lo, hi = np.percentile(diffs, [2.5, 97.5])
-    p_value = min(2 * min((diffs <= 0).mean(), (diffs >= 0).mean()), 1.0)
-    return {"observed_diff": float(observed_diff), "ci95": (float(lo), float(hi)),
-            "p_value": float(p_value)}
-
-
-def print_significance(label_a, label_b, y_true, pred_a, pred_b, macro_f1_fn, n_boot=2000):
-    """Druckt McNemar (Top-1) + paired Bootstrap (macro-F1) fuer ein Variantenpaar."""
-    mc = mcnemar_test(y_true, pred_a, pred_b)
-    print(f"\n  McNemar Top-1  [{label_a} vs. {label_b}]: "
-          f"diskordant b={mc['b']} (nur {label_a} richtig), c={mc['c']} (nur {label_b} richtig), "
-          f"p={mc['p_value']:.4g}"
-          + ("  *** signifikant (p<0.05)" if mc['p_value'] < 0.05 else "  n.s."))
-
-    bs = paired_bootstrap(y_true, pred_a, pred_b, macro_f1_fn, n_boot=n_boot)
-    print(f"  Paired Bootstrap macro-F1 [{label_b} - {label_a}], n_boot={n_boot}: "
-          f"D={bs['observed_diff']*100:+.2f}pp  95%-CI=[{bs['ci95'][0]*100:+.2f}, {bs['ci95'][1]*100:+.2f}]pp  "
-          f"p={bs['p_value']:.4g}"
-          + ("  *** signifikant (p<0.05)" if bs['p_value'] < 0.05 else "  n.s."))
-    return mc, bs
 
 
 def format_mcnemar_report(label_a, label_b, acc_a, acc_b, mc, n_total, testset_desc):

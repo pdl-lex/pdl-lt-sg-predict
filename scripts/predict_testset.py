@@ -18,6 +18,7 @@ Beispiel:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -25,6 +26,33 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sachgruppen_classifier import SachgruppenClassifier  # noqa: E402
+
+
+def check_same_training_setup(model_paths: list[str]) -> None:
+    """Bricht ab, wenn die Modelle nicht mit demselben Datensatz/Split trainiert
+    wurden (Metadaten-Abgleich von csv_file, num_samples, test_size).
+
+    Ohne diesen Check waere ein Mischvergleich (z.B. 113126- gegen
+    124217-Sample-Modell auf data/baseline_test.csv) stilles Leakage:
+    Testzeilen des einen Modells lagen im Training des anderen.
+    """
+    setups: dict[str, tuple] = {}
+    for model_path in model_paths:
+        meta_path = Path(model_path).with_name(Path(model_path).stem + "_metadata.json")
+        if not meta_path.exists():
+            print(f"WARNUNG: Keine Metadaten fuer {Path(model_path).name} -- "
+                  f"Split-Vergleichbarkeit kann nicht geprueft werden.")
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        setups[Path(model_path).name] = (
+            meta.get("csv_file"), meta.get("num_samples"), meta.get("test_size"),
+        )
+    if len(set(setups.values())) > 1:
+        print("FEHLER: Die Modelle wurden nicht mit demselben Datensatz/Split trainiert.")
+        for name, (csv_file, n, ts) in setups.items():
+            print(f"  {name}: csv_file={csv_file}, num_samples={n}, test_size={ts}")
+        print("Ein gepaarter Vergleich (McNemar) waere ungueltig. Abbruch.")
+        sys.exit(1)
 
 
 def load_testset(csv_file: str) -> pd.DataFrame:
@@ -50,6 +78,8 @@ def main():
     ap.add_argument("--out", required=True,
                      help="Ziel-CSV: sachgruppe (wahr) + eine Spalte pro Modell")
     args = ap.parse_args()
+
+    check_same_training_setup(args.models)
 
     print(f"Lade Test-Set: {args.csv}")
     df_test = load_testset(args.csv)
