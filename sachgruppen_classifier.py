@@ -44,9 +44,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, MaxAbsScaler
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import classification_report, accuracy_score
 
 
 class StopwordRemover(BaseEstimator, TransformerMixin):
@@ -407,6 +405,7 @@ class SachgruppenClassifier:
                 class_weight='balanced',
                 random_state=self.random_state,
                 solver='saga',
+                n_jobs=-1,
                 verbose=1
             )
 
@@ -665,7 +664,6 @@ class SachgruppenClassifier:
                 X_test = X_test[mask]
                 y_test = y_test[mask]
 
-            y_test_encoded = self.label_encoder.transform(y_test)
             y_pred_encoded = self.pipeline.predict(X_test)
             # Decode back to original string labels
             y_pred = self.label_encoder.inverse_transform(y_pred_encoded)
@@ -854,6 +852,8 @@ class SachgruppenClassifier:
                 'analyzer': self.analyzer,
                 'word_ngram_max': self.word_ngram_max,
                 'use_word_features': self.use_word_features,
+                'use_spacy': self.use_spacy,
+                'use_dornseiff': self.use_dornseiff,
                 'use_svd': self.use_svd,
                 'svd_components': self.svd_components,
                 'svm_c': self.svm_c,
@@ -895,6 +895,8 @@ class SachgruppenClassifier:
             analyzer=data.get('analyzer', 'char_wb'),
             word_ngram_max=data.get('word_ngram_max', 1),
             use_word_features=data.get('use_word_features', False),  # False for backward compatibility
+            use_spacy=data.get('use_spacy', False),
+            use_dornseiff=data.get('use_dornseiff', False),
             use_svd=data.get('use_svd', False),
             svd_components=data.get('svd_components', 500),
             svm_c=data.get('svm_c', 1.0),
@@ -997,7 +999,15 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     X = df_clean[x_cols]
     y = df_clean['sachgruppe'].astype(str)
 
-    # Stratified split with special handling for rare classes
+    # Stratified split with special handling for rare classes.
+    #
+    # Known caveat (documented, deliberately not changed): ~75% of the corpus
+    # rows share their 'bedeutung' string with at least one other row (e.g.
+    # "Familienname" 1400+ times). The random split puts identical glosses in
+    # both train and test, so the reported test accuracy is inflated by
+    # memorization. For an honest generalization estimate use the goldstandard
+    # evaluation (scripts/evaluate_goldstandard_nn.py); the gap is quantified
+    # in scripts/diagnose_goldstandard_gap.py.
     class_counts = y.value_counts()
     single_sample_classes = class_counts[class_counts == 1].index
 
