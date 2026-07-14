@@ -13,8 +13,11 @@ from typing import Any
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
-# Module-level explainer cache: keyed by model_path (or id(clf) as fallback)
+# Module-level explainer cache: keyed by model_path (or id(clf) as fallback).
+# Capped: each explainer holds a reference to its classifier, so an unbounded
+# cache would keep evicted models (100-330 MB each) alive in memory.
 _EXPLAINER_CACHE: dict[str, Any] = {}
+_EXPLAINER_CACHE_MAX = 2
 
 # Module-level stopwords cache
 _STOPWORDS_CACHE: frozenset | None = None
@@ -245,10 +248,19 @@ def get_word_shap_scores(
         if step_name in named_steps:
             X_preprocessed = named_steps[step_name].transform(X_preprocessed)
     X_transformed = vectorizer_step.transform(X_preprocessed)
+    # Apply any steps between vectorizer and classifier (e.g. the MaxAbsScaler
+    # in NN pipelines): the classifier expects the feature scale it was trained
+    # on. Element-wise scaling keeps feature count and order unchanged, so the
+    # per-transformer n-gram slicing below stays valid.
+    step_names = [name for name, _ in clf.pipeline.steps]
+    for step_name in step_names[step_names.index("vectorizer") + 1:-1]:
+        X_transformed = named_steps[step_name].transform(X_transformed)
 
     # Load explainer from cache or build a new one
     cache_key = str(model_path) if model_path else str(id(clf))
     if cache_key not in _EXPLAINER_CACHE:
+        while len(_EXPLAINER_CACHE) >= _EXPLAINER_CACHE_MAX:
+            _EXPLAINER_CACHE.pop(next(iter(_EXPLAINER_CACHE)))
         _EXPLAINER_CACHE[cache_key] = _build_explainer(
             clf.model_type, classifier_step, X_transformed
         )
