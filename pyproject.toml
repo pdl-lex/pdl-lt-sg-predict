@@ -40,4 +40,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["sachgruppen_classifier", "shap_utils"]
-packages = ["pdl_lt_sg_predict"]
+
+# find statt statischer Liste: nimmt auch die Subpackages (api, api.routers,
+# core) mit — eine statische ["pdl_lt_sg_predict"] wuerde sie beim
+# Nicht-Editable-Install (Docker) auslassen.
+[tool.setuptools.packages.find]
+include = ["pdl_lt_sg_predict*"]

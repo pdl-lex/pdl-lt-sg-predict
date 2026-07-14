@@ -19,6 +19,8 @@ tests
 *.epub
 *.md
 !anleitung.md
+# README wird vom Paket-Build gebraucht (pyproject: readme = "README.md").
+!README.md
 start.txt
 
 # Zur Laufzeit wird aus data/ nur die Sachgruppen-Taxonomie gelesen.
