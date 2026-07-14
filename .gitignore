@@ -9,6 +9,9 @@ dist/
 wheels/
 *.egg-info
 .env
+
+# Dornseiff-Quelldokument (data/Dornseiff - ... .epub): nicht ins Repo,
+# der daraus abgeleitete Gazetteer-Cache (assets/dornseiff_gaz_cache.pkl) reicht.
 *.epub
 
 # Virtual environments
