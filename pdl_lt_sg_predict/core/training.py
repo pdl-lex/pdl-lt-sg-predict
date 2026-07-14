@@ -91,8 +91,9 @@ class TrainingManager:
         return self._proc is not None and self._proc.poll() is None
 
     def _base_cmd(self, progress_file: Path, cfg: dict) -> list[str]:
-        analyzer = cfg.get("analyzer_mode", "char_wb")
-        word_ngram_max = cfg.get("word_ngram_max", 1) if analyzer == "word" else 1
+        # word_ngram_max kommt vorbereitet aus start_single/start_batch — hier
+        # nicht mehr an analyzer_mode koppeln (im Batch laufen char_wb UND word).
+        word_ngram_max = cfg.get("word_ngram_max", 1)
         cmd = [
             sys.executable, str(CLASSIFIER_SCRIPT),
             "--csv", str(self.csv_path),
@@ -124,6 +125,8 @@ class TrainingManager:
         progress_file.write_text('{"pct": 0, "msg": "Starte…", "done": false, "error": ""}')
 
         analyzer = cfg.get("analyzer_mode", "char_wb")
+        if analyzer != "word":
+            cfg = {**cfg, "word_ngram_max": 1}
         cmd = self._base_cmd(progress_file, cfg) + [
             "--model", cfg.get("model", "svm"),
             "--analyzer", analyzer,
@@ -152,7 +155,7 @@ class TrainingManager:
         progress_file = _TRAIN_DIR / "batch_progress.json"
         progress_file.write_text('{"pct": 0, "msg": "Starte…", "done": false, "config_idx": 0, "config_total": 0, "error": ""}')
 
-        cfg = {**cfg, "word_ngram_max": word_ngram_max, "analyzer_mode": "char_wb"}
+        cfg = {**cfg, "word_ngram_max": word_ngram_max}
         cmd = self._base_cmd(progress_file, cfg)
         # --model/--analyzer/--min-length/--stopwords als Mehrfachwerte anhängen.
         cmd += ["--model", *model_types, "--analyzer", *analyzers,

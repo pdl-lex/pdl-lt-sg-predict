@@ -24,6 +24,11 @@ const BATCH_MINLENS = [1, 2, 3]
 const TIME_FALLBACK: Record<string, number> = { svm: 120, logistic: 4286, rf: 30, nn: 111, xgboost: 6112 }
 const TIME_FALLBACK_SAMPLES = 113127
 
+// Entspricht der Dedupe-Logik in core/training.py:start_batch — word-(1,1) und
+// word-(1,2) verschmelzen dort zu EINER word-Konfiguration (max. n-gram gewinnt).
+const analyzerVariants = (analyzers: string[]) =>
+  new Set(analyzers.map((a) => (a.startsWith('word') ? 'word' : 'char_wb'))).size
+
 interface Cfg {
   model: string; test_size: number; use_stopword_removal: boolean; min_word_length: number
   analyzer_mode: string; word_ngram_max: number; use_spacy: boolean; use_dornseiff: boolean
@@ -138,7 +143,7 @@ export function TrainingConfig() {
   }
 
   const batchCount = cfg.batch_model_types.length * cfg.batch_use_stopwords.length
-    * cfg.batch_min_lengths.length * cfg.batch_analyzers.length
+    * cfg.batch_min_lengths.length * analyzerVariants(cfg.batch_analyzers)
 
   return (
     <div className="cfg-scroll" style={{ overflowY: 'auto', flex: 1, background: 'var(--lt-bg-2)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -268,7 +273,7 @@ function ParamGroup({ title, children }: { title: string; children: ReactNode })
 function estimateBatch(cfg: Cfg, csv: TrainingCsvInfo | null): string {
   const n = csv?.num_samples ?? 0
   if (!n) return ''
-  const perType = cfg.batch_use_stopwords.length * cfg.batch_min_lengths.length * cfg.batch_analyzers.length
+  const perType = cfg.batch_use_stopwords.length * cfg.batch_min_lengths.length * analyzerVariants(cfg.batch_analyzers)
   let secs = 0
   for (const mt of cfg.batch_model_types) {
     const measured = csv?.time_per_type?.[mt]
