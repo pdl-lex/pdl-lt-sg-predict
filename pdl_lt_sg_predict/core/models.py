@@ -72,7 +72,8 @@ def list_models() -> list[dict]:
             except (OSError, json.JSONDecodeError):
                 meta = {}
         else:
-            model_type = pkl_file.stem.split("_")[1] if "_" in pkl_file.stem else "unknown"
+            # Dateinamen beginnen mit dem Modelltyp (z. B. nn_char_wb_…).
+            model_type = pkl_file.stem.split("_")[0]
             meta = {
                 "model_type": model_type,
                 "accuracy": 0.0,

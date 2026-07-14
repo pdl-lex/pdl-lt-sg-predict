@@ -22,30 +22,37 @@ def _decoded_classes(clf) -> np.ndarray:
     return classes
 
 
-def _topk_indices(clf, X, k: int = 3):
-    """(indices, proba_matrix|None) für Top-k je Zeile.
+def _predict_with_topk(clf, X, k: int = 3):
+    """(predictions, indices, proba_matrix|None, classes) je Zeile.
 
-    Nutzt predict_proba, sonst decision_function als Ranking-Ersatz (SVM).
+    Transformiert die Eingabe genau EINMAL durch die Pipeline und leitet daraus
+    sowohl die Vorhersage (Argmax) als auch das Top-k-Ranking ab — statt predict
+    und predict_proba getrennt (= doppelte TF-IDF-Transformation) aufzurufen.
+    Ranking über predict_proba, sonst decision_function (SVM); Fallback ohne
+    Ranking: nur clf.predict.
     """
+    classes = _decoded_classes(clf)
+    classifier = clf.pipeline.named_steps["classifier"]
+    X_transformed = clf.pipeline[:-1].transform(X)
+
+    proba = None
     try:
-        proba = np.asarray(clf.predict_proba(X), dtype=float)
-        idx = np.argsort(proba, axis=1)[:, ::-1][:, :k]
-        return idx, proba
+        proba = np.asarray(classifier.predict_proba(X_transformed), dtype=float)
+        scores = proba
     except Exception:
-        pass
-    try:
-        scores = np.asarray(
-            clf.pipeline.named_steps["classifier"].decision_function(
-                clf.pipeline[:-1].transform(X)
-            ),
-            dtype=float,
-        )
-        if scores.ndim == 1:  # binär – unwahrscheinlich, aber abgesichert
-            scores = np.column_stack([-scores, scores])
-        idx = np.argsort(scores, axis=1)[:, ::-1][:, :k]
-        return idx, None
-    except Exception:
-        return None, None
+        try:
+            scores = np.asarray(classifier.decision_function(X_transformed), dtype=float)
+            if scores.ndim == 1:  # binär – unwahrscheinlich, aber abgesichert
+                scores = np.column_stack([-scores, scores])
+        except Exception:
+            scores = None
+
+    if scores is None:
+        return [str(p) for p in clf.predict(X)], None, None, classes
+
+    idx = np.argsort(scores, axis=1)[:, ::-1][:, :k]
+    predictions = [str(classes[row[0]]) for row in idx]
+    return predictions, idx, proba, classes
 
 
 def predict_single(model_file: str, lemma: str, bedeutung: str, k: int = 3) -> dict:
@@ -53,9 +60,8 @@ def predict_single(model_file: str, lemma: str, bedeutung: str, k: int = 3) -> d
     clf = get_model(str(MODELS_DIR / model_file))
     X = pd.DataFrame({"lemma": [lemma or ""], "bedeutung": [bedeutung or ""]})
 
-    prediction = str(clf.predict(X)[0])
-    classes = _decoded_classes(clf)
-    idx, proba = _topk_indices(clf, X, k)
+    predictions, idx, proba, classes = _predict_with_topk(clf, X, k)
+    prediction = predictions[0]
 
     top: list[dict] = []
     if idx is not None:
@@ -124,9 +130,7 @@ def predict_batch(model_file: str, csv_bytes: bytes, k: int = 3) -> dict:
 
     clf = get_model(str(MODELS_DIR / model_file))
     X = df[["lemma", "bedeutung"]].fillna("")
-    predictions = clf.predict(X)
-    classes = _decoded_classes(clf)
-    idx, proba = _topk_indices(clf, X, k)
+    predictions, idx, proba, classes = _predict_with_topk(clf, X, k)
 
     rows: list[dict] = []
     for n, (_, row) in enumerate(df.iterrows()):

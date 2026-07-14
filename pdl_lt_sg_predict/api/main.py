@@ -8,6 +8,7 @@ Die API liegt unter ``/api``; in Produktion wird das gebaute Frontend
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,10 +23,12 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Für den React+Vite-Dev-Server. In Produktion einschränken.
+# CORS nur für den React+Vite-Dev-Server nötig (Produktion liefert das
+# Frontend same-origin aus). Weitere Origins kommasepariert via CORS_ORIGINS.
+_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )

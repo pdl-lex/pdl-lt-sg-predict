@@ -65,12 +65,14 @@ def info() -> TrainingInfo:
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...)) -> UploadResponse:
+def upload(file: UploadFile = File(...)) -> UploadResponse:
+    # Bewusst sync (Threadpool): upload_csv schreibt die Datei und parst sie
+    # mit pandas — als async-Handler würde das den Event-Loop blockieren.
     if not ENABLE_TRAINING:
         raise HTTPException(403, "Training ist deaktiviert.")
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(422, "Nur CSV-Dateien erlaubt.")
-    content = await file.read()
+    content = file.file.read()
     try:
         return UploadResponse(**MANAGER.upload_csv(file.filename or "daten.csv", content))
     except ValueError as e:

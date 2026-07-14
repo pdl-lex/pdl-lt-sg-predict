@@ -77,17 +77,23 @@ def shap(req: ShapRequest) -> ShapResponse:
         return ShapResponse(**prediction.explain(
             req.model_file, req.lemma, req.bedeutung, req.predicted_label, req.filter_stopwords,
         ))
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Modell nicht gefunden: {req.model_file}") from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"SHAP-Berechnung fehlgeschlagen: {e}") from e
 
 
 @router.post("/batch", response_model=BatchResponse)
-async def batch(model_file: str = Form(...), file: UploadFile = File(...)) -> BatchResponse:
+def batch(model_file: str = Form(...), file: UploadFile = File(...)) -> BatchResponse:
+    # Bewusst sync (Threadpool): predict_batch ist CPU-gebunden und würde als
+    # async-Handler den Event-Loop für alle anderen Requests blockieren.
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(422, "Nur CSV-Dateien erlaubt.")
-    content = await file.read()
+    content = file.file.read()
     try:
         return BatchResponse(**prediction.predict_batch(model_file, content))
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Modell nicht gefunden: {model_file}") from e
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     except Exception as e:  # noqa: BLE001

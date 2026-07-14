@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 
@@ -43,9 +45,7 @@ ENABLE_TRAINING = os.getenv("ENABLE_TRAINING", "True").strip().lower() in (
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 # Session-Verzeichnis für Uploads (Batch-CSV, Trainings-CSV, Fortschrittsdateien).
-SESSIONS_DIR = Path(os.getenv("SESSIONS_DIR", "")) if os.getenv("SESSIONS_DIR") else (
-    REPO_ROOT / ".sessions"
-)
+SESSIONS_DIR = _resolve_dir(os.getenv("SESSIONS_DIR", ""), REPO_ROOT / ".sessions")
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Modelltypen (Code -> Anzeigename) ───────────────────────────────────────
@@ -76,22 +76,38 @@ def describe(label: str) -> str:
     return sachgruppen_map().get(str(label), "(unbekannt)")
 
 
-# ── Modell-Cache (jedes Modell einmal je Prozess laden) ─────────────────────
-_MODEL_CACHE: dict[str, object] = {}
+# ── Modell-Cache (LRU, max. 2 — Modelle sind 100–330 MB groß) ───────────────
+_MODEL_CACHE: OrderedDict[str, object] = OrderedDict()
+_MODEL_CACHE_MAX = 2
+_MODEL_CACHE_LOCK = threading.Lock()
 
 
 def get_model(model_path: str | Path):
-    """Ein gespeichertes Modell laden und im Prozess vorhalten."""
+    """Ein gespeichertes Modell laden und im Prozess vorhalten (LRU).
+
+    Der Lock verhindert, dass parallele Erst-Requests dasselbe Modell doppelt
+    laden (Sync-Endpunkte laufen im FastAPI-Threadpool).
+    """
     key = str(model_path)
-    if key not in _MODEL_CACHE:
+    with _MODEL_CACHE_LOCK:
+        if key in _MODEL_CACHE:
+            _MODEL_CACHE.move_to_end(key)
+            return _MODEL_CACHE[key]
+
         from sachgruppen_classifier import SachgruppenClassifier
 
         try:
-            _MODEL_CACHE[key] = SachgruppenClassifier.load(key)
+            model = SachgruppenClassifier.load(key)
+        except FileNotFoundError:
+            # Durchreichen: die API-Handler mappen das auf HTTP 404.
+            raise
         except Exception as e:  # noqa: BLE001 — inkompatible/beschädigte Pickles
             name = Path(key).name
             raise RuntimeError(
                 f"Modell '{name}' konnte nicht geladen werden "
                 f"(evtl. inkompatible oder beschädigte Datei): {e}"
             ) from e
-    return _MODEL_CACHE[key]
+        _MODEL_CACHE[key] = model
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
+            _MODEL_CACHE.popitem(last=False)
+        return model

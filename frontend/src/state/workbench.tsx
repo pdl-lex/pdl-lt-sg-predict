@@ -77,7 +77,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     theme, toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
     layout, setLayout, railPinned, setRailPinned,
     activeId, setActiveId,
-    config, enableTraining: config?.enable_training ?? true, modelTypes: config?.model_types ?? [],
+    config, enableTraining: config?.enable_training ?? false, modelTypes: config?.model_types ?? [],
     models, modelsLoading, reloadModels, best: models?.best ?? null,
     selectedModel, setSelectedModel,
     run, registerRun,
