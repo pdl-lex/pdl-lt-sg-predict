@@ -42,7 +42,7 @@ scripts/benchmark_embeddings.py
 scripts/benchmark_spacy.py
 scripts/confusion_pairs.py
 scripts/overlap_candidates.py
-taxonomie_ueberlapp_kandidaten.md
+analysis/taxonomie_ueberlapp_kandidaten.md
 
 # Große Trainings-/Ausgabedaten (nicht ins Repo; liegen auch in .sessions/)
 woerterbuch_daten_*.csv
