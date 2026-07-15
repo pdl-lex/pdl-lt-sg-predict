@@ -35,6 +35,7 @@ class SingleConfig(HyperParams):
     use_stopword_removal: bool = False
     cross_validate: bool = False  # zusätzliche split-unabhängige k-fold-Bewertung
     cv_folds: int = 5
+    cv_mode: str = "stratified"  # stratified | group (GroupKFold nach bedeutung)
 
 
 class BatchConfig(HyperParams):

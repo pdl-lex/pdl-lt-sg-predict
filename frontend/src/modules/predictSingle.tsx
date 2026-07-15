@@ -52,14 +52,14 @@ export function SingleProvider({ children }: { children: ReactNode }) {
     if (!selectedModel) { setError('Kein Modell gewählt.'); return }
     if (!bedeutung.trim()) { setError('Bitte eine Bedeutung eingeben.'); return }
     setRunning(true); setError(''); setShap(null); setShapError('')
+    // SHAP wird bewusst NICHT automatisch berechnet: predict() ist in Millisekunden
+    // fertig, die SHAP-Erklärung dauert aber einige Sekunden. Der Nutzer startet sie
+    // bei Bedarf über den Button im ShapPanel (gilt für alle Modelltypen).
     api.predictSingle({ model_file: selectedModel, lemma, bedeutung })
-      .then((res) => {
-        setResult(res)
-        if (res.model_type !== 'nn') computeShapFor(res.prediction, filterStopwords)
-      })
+      .then(setResult)
       .catch((e) => { setError(e instanceof ApiError ? `Fehler (${e.status}): ${e.message}` : String(e)); setResult(null) })
       .finally(() => setRunning(false))
-  }, [selectedModel, lemma, bedeutung, filterStopwords, computeShapFor])
+  }, [selectedModel, lemma, bedeutung])
 
   useRunAction(run, [run])
 
@@ -70,8 +70,9 @@ export function SingleProvider({ children }: { children: ReactNode }) {
   const toggleStopwords = useCallback(() => {
     const next = !filterStopwords
     setFilterStopwords(next)
-    if (result && result.model_type !== 'nn') computeShapFor(result.prediction, next)
-  }, [filterStopwords, result, computeShapFor])
+    // Nur neu berechnen, wenn bereits eine SHAP-Erklärung angezeigt wird.
+    if (result && shap) computeShapFor(result.prediction, next)
+  }, [filterStopwords, result, shap, computeShapFor])
 
   return (
     <Ctx.Provider value={{
@@ -180,9 +181,12 @@ function ShapPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {shapLoading && <Callout tone="neutral" icon="sparkle">SHAP-Erklärung wird berechnet…</Callout>}
-      {isNN && !shapLoading && !hasResults && (
-        <PrimaryButton icon="sparkle" onClick={computeShap} style={{ alignSelf: 'flex-start', background: 'var(--lt-warn)', borderColor: 'var(--lt-warn)' }}>
-          Erklärung anzeigen (Neural Network – dauert ~30–60 s)
+      {!shapLoading && !hasResults && (
+        <PrimaryButton icon="sparkle" onClick={computeShap}
+          style={{ alignSelf: 'flex-start', ...(isNN ? { background: 'var(--lt-warn)', borderColor: 'var(--lt-warn)' } : {}) }}>
+          {isNN
+            ? 'Erklärung anzeigen (Neural Network – dauert ~30–60 s)'
+            : 'Erklärung anzeigen (SHAP – dauert einige Sekunden)'}
         </PrimaryButton>
       )}
       {shapError && <Callout tone="err" icon="warn">SHAP-Fehler: {shapError}</Callout>}

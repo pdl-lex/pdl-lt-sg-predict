@@ -135,7 +135,9 @@ class TrainingManager:
         ]
         cv_folds = max(2, int(cfg.get("cv_folds", 5)))
         if cfg.get("cross_validate"):
-            cmd += ["--cross-validate", "--cv-folds", str(cv_folds)]
+            cv_mode = cfg.get("cv_mode", "stratified")
+            cv_mode = cv_mode if cv_mode in ("stratified", "group") else "stratified"
+            cmd += ["--cross-validate", "--cv-folds", str(cv_folds), "--cv-mode", cv_mode]
 
         # Zeitschätzung für die geglättete Fortschrittsanzeige.
         est = self.time_per_type.get(cfg.get("model", "svm"),

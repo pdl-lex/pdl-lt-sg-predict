@@ -763,29 +763,38 @@ class SachgruppenClassifier:
             lines.append(f"  {cov:>4} Abdeckung  ->  {acc:.4f} Accuracy")
         return "\n".join(lines)
     
-    def cross_validate(self, X, y, cv=5, scoring='accuracy'):
-        """Run stratified k-fold cross-validation on a fresh clone of the pipeline.
+    def cross_validate(self, X, y, cv=5, scoring='accuracy', mode='stratified',
+                       groups=None):
+        """Run k-fold cross-validation on a fresh clone of the pipeline.
 
         Unlike a single train/test split, this trains and evaluates ``cv`` times so
         the returned mean is less dependent on one arbitrary split and the standard
         deviation quantifies how much the estimate varies across folds.
 
+        Two fold-assignment strategies (``mode``):
+          * ``'stratified'`` — StratifiedKFold: preserves the class distribution in
+            every fold. Needs ≥ ``cv`` samples per class, so rarer classes are excluded
+            from the estimate (and counted below). ``shuffle=True`` with a fixed
+            ``random_state`` makes the fold assignment reproducible.
+          * ``'group'`` — GroupKFold with ``groups`` (the *bedeutung* string): every
+            row sharing a gloss stays in the same fold, so identical glosses never
+            appear in both train and test. This removes the memorization leakage
+            documented in ``train_and_evaluate`` and gives an honest estimate of
+            generalization to *unseen* glosses. GroupKFold is deterministic (no seed)
+            and does not stratify, so some classes may be absent from a training fold.
+
         Notes / caveats:
           * The pipeline is cloned per fold (``cross_val_score`` does this), so the
             model already fitted on the training split is left untouched.
-          * Labels are LabelEncoded to contiguous integers 0..M-1. This is required
-            by XGBoost and harmless for the other model types; it also matches how
-            ``train`` encodes labels for xgboost/nn/rf.
-          * StratifiedKFold needs at least ``cv`` samples per class, so classes with
-            fewer members are excluded from the CV estimate (and counted below). The
-            single-split accuracy in the report still covers all classes.
-          * ``shuffle=True`` with a fixed ``random_state`` keeps the fold assignment
-            reproducible across runs (comparable to the fixed split seed).
+          * Labels are LabelEncoded to contiguous integers 0..M-1 (required by XGBoost,
+            harmless otherwise). In ``'group'`` mode a class may be missing from a
+            training fold; XGBoost then rejects the non-contiguous labels — that case
+            is caught and reported as ``ok=False`` rather than crashing.
 
-        Returns a dict with the per-fold scores, mean, std and exclusion counts.
+        Returns a dict with the per-fold scores, mean, std and diagnostic counts.
         """
         from sklearn.base import clone
-        from sklearn.model_selection import StratifiedKFold
+        from sklearn.model_selection import StratifiedKFold, GroupKFold
         from sklearn.preprocessing import LabelEncoder
 
         if self.pipeline is None:
@@ -795,56 +804,91 @@ class SachgruppenClassifier:
         # original DataFrame/Series index.
         X = X.reset_index(drop=True) if hasattr(X, 'reset_index') else X
         y = pd.Series(y).astype(str).reset_index(drop=True)
+        if groups is not None:
+            groups = pd.Series(groups).astype(str).reset_index(drop=True)
 
-        counts = y.value_counts()
-        keep_classes = counts[counts >= cv].index
-        mask = y.isin(keep_classes).to_numpy()
-        n_excluded_classes = int((counts < cv).sum())
-        n_excluded_samples = int((~mask).sum())
+        base = {'ok': False, 'cv': cv, 'scoring': scoring, 'mode': mode}
 
-        X_cv = X[mask]
-        y_cv = y[mask]
+        if mode == 'group':
+            if groups is None:
+                print("Cross-validation skipped: group mode requires 'groups' (bedeutung).")
+                return {**base, 'reason': 'no_groups',
+                        'n_excluded_classes': 0, 'n_excluded_samples': 0,
+                        'n_used_samples': int(len(y)), 'n_used_classes': int(y.nunique())}
+            # GroupKFold needs at least cv distinct groups; it does not stratify, so no
+            # per-class sample-count filtering is applied.
+            X_cv, y_cv, groups_arg = X, y, groups
+            n_excluded_classes = n_excluded_samples = 0
+            n_groups = int(groups.nunique())
+            splitter = GroupKFold(n_splits=cv)
+            if n_groups < cv or y_cv.nunique() < 2:
+                print(f"Cross-validation skipped: too few groups/classes "
+                      f"(groups={n_groups}, classes={y_cv.nunique()}).")
+                return {**base, 'reason': 'too_few_groups', 'n_groups': n_groups,
+                        'n_excluded_classes': 0, 'n_excluded_samples': 0,
+                        'n_used_samples': int(len(y_cv)), 'n_used_classes': int(y_cv.nunique())}
+        else:
+            # Stratified: exclude classes with fewer than cv samples (KFold requirement).
+            counts = y.value_counts()
+            keep_classes = counts[counts >= cv].index
+            mask = y.isin(keep_classes).to_numpy()
+            n_excluded_classes = int((counts < cv).sum())
+            n_excluded_samples = int((~mask).sum())
+            X_cv, y_cv, groups_arg = X[mask], y[mask], None
+            n_groups = None
+            splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.random_state)
+            if y_cv.nunique() < 2 or len(y_cv) < cv:
+                print("Cross-validation skipped: too few usable classes/samples "
+                      f"(classes={y_cv.nunique()}, samples={len(y_cv)}).")
+                return {**base,
+                        'n_excluded_classes': n_excluded_classes,
+                        'n_excluded_samples': n_excluded_samples,
+                        'n_used_samples': int(mask.sum()),
+                        'n_used_classes': int(y_cv.nunique())}
+
         n_classes = int(y_cv.nunique())
-
-        if n_classes < 2 or len(y_cv) < cv:
-            print("Cross-validation skipped: too few usable classes/samples "
-                  f"(classes={n_classes}, samples={len(y_cv)}).")
-            return {
-                'ok': False, 'cv': cv, 'scoring': scoring,
-                'n_excluded_classes': n_excluded_classes,
-                'n_excluded_samples': n_excluded_samples,
-                'n_used_samples': int(mask.sum()),
-                'n_used_classes': n_classes,
-            }
-
         y_enc = LabelEncoder().fit_transform(y_cv)
 
         if n_excluded_samples:
             print(f"Cross-validation: {n_excluded_samples} samples from "
                   f"{n_excluded_classes} rare classes (< {cv} samples) excluded.")
-        print(f"\nRunning {cv}-fold cross-validation (scoring={scoring})...")
-        skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.random_state)
-        scores = cross_val_score(
-            clone(self.pipeline), X_cv, y_enc,
-            cv=skf,
-            scoring=scoring,
-            n_jobs=-1,
-        )
+        print(f"\nRunning {cv}-fold cross-validation "
+              f"(mode={mode}, scoring={scoring})...")
+        try:
+            scores = cross_val_score(
+                clone(self.pipeline), X_cv, y_enc,
+                cv=splitter,
+                groups=groups_arg,
+                scoring=scoring,
+                n_jobs=-1,
+            )
+        except ValueError as exc:
+            # e.g. XGBoost rejecting non-contiguous labels when group folds leave a
+            # class entirely out of a training split.
+            print(f"Cross-validation failed ({mode} mode): {exc}")
+            return {**base, 'reason': 'fold_error', 'error': str(exc),
+                    'n_groups': n_groups,
+                    'n_excluded_classes': n_excluded_classes,
+                    'n_excluded_samples': n_excluded_samples,
+                    'n_used_samples': int(len(y_cv)), 'n_used_classes': n_classes}
 
         print(f"Scores: {scores}")
         print(f"Mean: {scores.mean():.4f} (+/- {scores.std():.4f})")
 
-        return {
-            'ok': True, 'cv': cv, 'scoring': scoring,
+        result = {
+            'ok': True, 'cv': cv, 'scoring': scoring, 'mode': mode,
             'scores': [float(s) for s in scores],
             'mean': float(scores.mean()),
             'std': float(scores.std()),
             'n_excluded_classes': n_excluded_classes,
             'n_excluded_samples': n_excluded_samples,
-            'n_used_samples': int(mask.sum()),
+            'n_used_samples': int(len(y_cv)),
             'n_used_classes': n_classes,
         }
-    
+        if n_groups is not None:
+            result['n_groups'] = n_groups
+        return result
+
     def predict(self, texts):
         """Predict labels for new texts."""
         if self.pipeline is None:
@@ -995,16 +1039,18 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        nn_hidden_layer_sizes=(100,), nn_alpha=0.0001,
                        nn_learning_rate_init=0.0005, nn_n_iter_no_change=5,
                        tune_n_iter=20, tune_cv=3,
-                       cross_validate=False, cv_folds=5,
+                       cross_validate=False, cv_folds=5, cv_mode='stratified',
                        progress_callback=None):
     """
     Main function for training and evaluation.
 
     Args:
         use_gpu: Enable GPU acceleration (XGBoost only)
-        cross_validate: Additionally run stratified k-fold CV on the full data for a
+        cross_validate: Additionally run k-fold CV on the full data for a
             split-independent estimate (trains the model cv_folds extra times).
         cv_folds: Number of folds for the optional cross-validation.
+        cv_mode: 'stratified' (preserve class balance) or 'group' (GroupKFold by the
+            bedeutung string, so identical glosses never straddle train/test).
         progress_callback: Optional function(pct: int, msg: str) for progress reporting
 
     Returns:
@@ -1172,8 +1218,10 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
     # Optional: split-independent estimate via stratified k-fold CV on all data.
     cv_results = None
     if cross_validate:
-        _cb(88, f"Cross-Validierung ({cv_folds} Folds)…")
-        cv_results = clf.cross_validate(X, y, cv=cv_folds, scoring='accuracy')
+        _cb(88, f"Cross-Validierung ({cv_folds} Folds, {cv_mode})…")
+        cv_groups = X['bedeutung'] if cv_mode == 'group' else None
+        cv_results = clf.cross_validate(X, y, cv=cv_folds, scoring='accuracy',
+                                        mode=cv_mode, groups=cv_groups)
         report_str = report_str + "\n\n" + _format_cv_results(cv_results)
 
     # Save
@@ -1189,16 +1237,25 @@ def _format_cv_results(cv: dict) -> str:
     """Render the cross-validation dict as a text block for the report file."""
     if not cv:
         return ""
+    mode = cv.get('mode', 'stratified')
+    mode_label = 'group (bedeutung)' if mode == 'group' else 'stratified'
     lines = ["=" * 60, "CROSS-VALIDIERUNG", "=" * 60]
     if not cv.get('ok'):
-        lines.append("Übersprungen: zu wenige nutzbare Klassen/Samples.")
+        reason = cv.get('reason')
+        if reason == 'fold_error':
+            lines.append(f"Fehlgeschlagen ({mode_label}): {cv.get('error', '')}")
+        elif reason in ('too_few_groups', 'no_groups'):
+            lines.append(f"Übersprungen ({mode_label}): zu wenige Gruppen/Klassen.")
+        else:
+            lines.append(f"Übersprungen ({mode_label}): zu wenige nutzbare Klassen/Samples.")
         return "\n".join(lines)
     folds = "  ".join(f"{s:.4f}" for s in cv['scores'])
     lines += [
-        f"{cv['cv']}-fold stratified, scoring={cv['scoring']}",
+        f"{cv['cv']}-fold {mode_label}, scoring={cv['scoring']}",
         f"Fold-Werte: {folds}",
         f"Mittel: {cv['mean']:.4f} (+/- {cv['std']:.4f})",
-        f"Genutzt: {cv['n_used_samples']} Samples / {cv['n_used_classes']} Klassen",
+        f"Genutzt: {cv['n_used_samples']} Samples / {cv['n_used_classes']} Klassen"
+        + (f" / {cv['n_groups']} Gruppen" if cv.get('n_groups') is not None else ""),
     ]
     if cv['n_excluded_samples']:
         lines.append(f"Ausgeschlossen (< {cv['cv']} Samples/Klasse): "
@@ -1373,6 +1430,11 @@ if __name__ == '__main__':
                              '--cv-folds extra times)')
     parser.add_argument('--cv-folds', type=int, default=5,
                         help='Number of folds for --cross-validate (min. 2)')
+    parser.add_argument('--cv-mode', type=str, default='stratified',
+                        choices=['stratified', 'group'],
+                        help="Fold strategy for --cross-validate: 'stratified' (class "
+                             "balance) or 'group' (GroupKFold by the bedeutung string, "
+                             "no shared glosses across train/test)")
 
     # --- Model-specific parameters ---
     parser.add_argument('--svm-c', type=float, default=1.0,
@@ -1512,6 +1574,7 @@ if __name__ == '__main__':
                     use_gpu=args.gpu,
                     cross_validate=do_cv,
                     cv_folds=max(2, args.cv_folds),
+                    cv_mode=args.cv_mode,
                     remove_stopwords=sw,
                     min_word_length=min_len,
                     analyzer=analyzer,

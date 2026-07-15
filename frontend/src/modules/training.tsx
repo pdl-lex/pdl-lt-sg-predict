@@ -32,7 +32,7 @@ const analyzerVariants = (analyzers: string[]) =>
 interface Cfg {
   model: string; test_size: number; use_stopword_removal: boolean; min_word_length: number
   analyzer_mode: string; word_ngram_max: number; use_spacy: boolean; use_dornseiff: boolean
-  cross_validate: boolean; cv_folds: number
+  cross_validate: boolean; cv_folds: number; cv_mode: string
   tune_mode: string; tune_n_iter: number; tune_cv: number
   svm_c: string; xgb_n_estimators: string; xgb_max_depth: string; xgb_learning_rate: string; xgb_subsample: string
   nn_hidden_layers: string; nn_alpha: string; nn_learning_rate_init: string
@@ -42,7 +42,7 @@ interface Cfg {
 const DEFAULT_CFG: Cfg = {
   model: 'svm', test_size: 0.2, use_stopword_removal: false, min_word_length: 1,
   analyzer_mode: 'char_wb', word_ngram_max: 1, use_spacy: true, use_dornseiff: true,
-  cross_validate: false, cv_folds: 5,
+  cross_validate: false, cv_folds: 5, cv_mode: 'stratified',
   tune_mode: 'standard', tune_n_iter: 20, tune_cv: 3,
   svm_c: '1.0', xgb_n_estimators: '300', xgb_max_depth: '6', xgb_learning_rate: '0.05', xgb_subsample: '0.8',
   nn_hidden_layers: '100', nn_alpha: '0.0001', nn_learning_rate_init: '0.0005',
@@ -205,6 +205,14 @@ export function TrainingConfig() {
             <>
               <Field label="Folds (k)"><input type="number" min={2} max={20} value={cfg.cv_folds}
                 onChange={(e) => set('cv_folds', Math.max(2, Number(e.target.value)))} style={numInput} /></Field>
+              <Field label="Fold-Strategie">
+                <Segmented options={['stratified', 'group']} value={cfg.cv_mode} onChange={(v) => set('cv_mode', v)} />
+              </Field>
+              <Callout tone="info" icon="info">
+                {cfg.cv_mode === 'group'
+                  ? 'GroupKFold nach bedeutung: identische Glossen bleiben im selben Fold.'
+                  : 'StratifiedKFold: erhält die Klassenverteilung je Fold (fixer Seed).'}
+              </Callout>
               <Callout tone="warn" icon="warn">Dauer ≈ (1 + k) × Einzeltraining. Nur Einzeltraining, nicht im Batch.</Callout>
             </>
           )}
@@ -369,10 +377,16 @@ export function TrainingMain() {
 }
 
 function CrossValBlock({ cv, splitAccuracy }: { cv: CrossValidation; splitAccuracy: number }) {
+  const modeLabel = cv.mode === 'group' ? 'Group / bedeutung' : 'Stratified'
   if (!cv.ok) {
+    const why = cv.reason === 'fold_error'
+      ? `fehlgeschlagen: ${cv.error ?? ''}`
+      : cv.reason === 'too_few_groups' || cv.reason === 'no_groups'
+        ? 'zu wenige Gruppen/Klassen'
+        : 'zu wenige nutzbare Klassen/Samples'
     return (
       <div style={{ marginTop: 6, fontSize: 12, color: 'var(--lt-fg-3)' }}>
-        Cross-Validierung übersprungen (zu wenige nutzbare Klassen/Samples für {cv.cv} Folds).
+        Cross-Validierung ({modeLabel}, {cv.cv} Folds) {why}.
       </div>
     )
   }
@@ -382,13 +396,14 @@ function CrossValBlock({ cv, splitAccuracy }: { cv: CrossValidation; splitAccura
   return (
     <div style={{ marginTop: 6, borderTop: '1px dashed var(--lt-line-1)', paddingTop: 6 }}>
       <div style={{ fontWeight: 600 }}>
-        Cross-Validierung ({cv.cv}-fold, {cv.scoring}): {mean.toFixed(4)} <span style={{ color: 'var(--lt-fg-3)' }}>± {std.toFixed(4)}</span>
+        Cross-Validierung ({cv.cv}-fold {modeLabel}, {cv.scoring}): {mean.toFixed(4)} <span style={{ color: 'var(--lt-fg-3)' }}>± {std.toFixed(4)}</span>
       </div>
       <div style={{ fontFamily: 'var(--lt-font-mono)', fontSize: 11.5, color: 'var(--lt-fg-3)' }}>
         Folds: {(cv.scores ?? []).map((s) => s.toFixed(4)).join('  ·  ')}
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--lt-fg-3)', marginTop: 2 }}>
         Einzel-Split vs. CV-Mittel: Δ {delta >= 0 ? '+' : ''}{delta.toFixed(4)}
+        {cv.mode === 'group' && cv.n_groups != null && ` · ${cv.n_groups} Bedeutungs-Gruppen`}
         {cv.n_excluded_samples > 0 && ` · ${cv.n_excluded_samples} Samples / ${cv.n_excluded_classes} seltene Klassen ausgeschlossen`}
       </div>
     </div>

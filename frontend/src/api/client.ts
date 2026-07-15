@@ -71,9 +71,13 @@ export interface CrossValidation {
   ok: boolean
   cv: number
   scoring: string
+  mode: 'stratified' | 'group'
   scores?: number[]
   mean?: number
   std?: number
+  reason?: string
+  error?: string
+  n_groups?: number
   n_excluded_classes: number
   n_excluded_samples: number
   n_used_samples: number

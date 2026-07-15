@@ -276,8 +276,8 @@ def get_word_shap_scores(
     shap_vals = shap_explanation.values  # (1, n_features) or (1, n_features, n_classes)
 
     # Determine class index for the predicted class
-    if clf.model_type in ("xgboost", "nn") and clf.label_encoder is not None:
-        # XGBoost/NN use integer labels; classes_ = [0, 1, ..., n-1]
+    if clf.model_type in ("xgboost", "nn", "rf") and clf.label_encoder is not None:
+        # XGBoost/NN/RF use integer labels; classes_ = [0, 1, ..., n-1]
         pred_int = clf.label_encoder.transform([predicted_label])[0]
         pred_class_idx = int(pred_int)
     else:
