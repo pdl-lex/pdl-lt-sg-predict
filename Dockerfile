@@ -38,6 +38,11 @@ RUN mkdir -p models
 # Gebautes Frontend an den von main.py erwarteten Ort
 COPY --from=frontend /frontend/dist ./frontend/dist
 
+# Das Image ist für den öffentlichen Betrieb gedacht: Training aus, denn die
+# /api/training/*-Endpunkte haben keine Authentifizierung. Für interne
+# Instanzen mit Training: docker run -e ENABLE_TRAINING=True …
+ENV ENABLE_TRAINING=False
+
 EXPOSE 8000
 
 # FastAPI liefert die API unter /api und das Frontend unter / aus.

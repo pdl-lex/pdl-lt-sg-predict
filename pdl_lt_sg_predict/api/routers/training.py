@@ -25,6 +25,7 @@ class HyperParams(BaseModel):
     nn_learning_rate_init: float = 0.0005
     use_spacy: bool = True
     use_dornseiff: bool = True
+    calibrate: bool = True  # Konfidenz-Kalibrierung (wirkt nur bei svm/nn)
 
 
 class SingleConfig(HyperParams):

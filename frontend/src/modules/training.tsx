@@ -32,6 +32,7 @@ const analyzerVariants = (analyzers: string[]) =>
 interface Cfg {
   model: string; test_size: number; use_stopword_removal: boolean; min_word_length: number
   analyzer_mode: string; word_ngram_max: number; use_spacy: boolean; use_dornseiff: boolean
+  calibrate: boolean
   cross_validate: boolean; cv_folds: number; cv_mode: string
   tune_mode: string; tune_n_iter: number; tune_cv: number
   svm_c: string; xgb_n_estimators: string; xgb_max_depth: string; xgb_learning_rate: string; xgb_subsample: string
@@ -42,6 +43,7 @@ interface Cfg {
 const DEFAULT_CFG: Cfg = {
   model: 'svm', test_size: 0.2, use_stopword_removal: false, min_word_length: 1,
   analyzer_mode: 'char_wb', word_ngram_max: 1, use_spacy: true, use_dornseiff: true,
+  calibrate: true,
   cross_validate: false, cv_folds: 5, cv_mode: 'stratified',
   tune_mode: 'standard', tune_n_iter: 20, tune_cv: 3,
   svm_c: '1.0', xgb_n_estimators: '300', xgb_max_depth: '6', xgb_learning_rate: '0.05', xgb_subsample: '0.8',
@@ -198,6 +200,15 @@ export function TrainingConfig() {
           <Toggle checked={cfg.use_dornseiff} onChange={(v) => set('use_dornseiff', v)} label="Dornseiff-Thesaurus" />
         </div>
         <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Konfidenzen</div>
+          <Toggle checked={cfg.calibrate} onChange={(v) => set('calibrate', v)}
+            label="Kalibrieren (Platt/sigmoid) – nur SVM/NN, Klassifikator-Fit ≈ 3×" />
+          <Callout tone="info" icon="info">
+            Empfohlen für SVM (bekommt damit echte Wahrscheinlichkeiten). Beim NN laut Messung
+            (07/2026) besser aus: die Softmax ist bereits gut kalibriert, Platt verschlechtert sie.
+          </Callout>
+        </div>
+        <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Cross-Validierung</div>
           <Toggle checked={cfg.cross_validate} onChange={(v) => set('cross_validate', v)}
             label="Zusätzliche k-fold-Bewertung (split-unabhängig)" />
@@ -299,7 +310,8 @@ function estimateBatch(cfg: Cfg, csv: TrainingCsvInfo | null): string {
   let secs = 0
   for (const mt of cfg.batch_model_types) {
     const measured = csv?.time_per_type?.[mt]
-    const est = measured && measured > 0 ? measured : (TIME_FALLBACK[mt] ?? 120) / TIME_FALLBACK_SAMPLES * n
+    let est = measured && measured > 0 ? measured : (TIME_FALLBACK[mt] ?? 120) / TIME_FALLBACK_SAMPLES * n
+    if (cfg.calibrate && (mt === 'svm' || mt === 'nn')) est *= 3
     secs += est * perType
   }
   if (secs <= 0) return ''

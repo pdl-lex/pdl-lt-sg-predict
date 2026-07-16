@@ -117,6 +117,8 @@ class TrainingManager:
             cmd.append("--use-spacy")
         if cfg.get("use_dornseiff"):
             cmd.append("--use-dornseiff")
+        if cfg.get("calibrate"):
+            cmd.append("--calibrate")
         return cmd
 
     def start_single(self, cfg: dict) -> dict:
@@ -142,6 +144,9 @@ class TrainingManager:
         # Zeitschätzung für die geglättete Fortschrittsanzeige.
         est = self.time_per_type.get(cfg.get("model", "svm"),
                                      _TIME_FALLBACKS.get(cfg.get("model", "svm"), 120.0))
+        if cfg.get("calibrate") and cfg.get("model", "svm") in ("svm", "nn"):
+            # CalibratedClassifierCV (cv=3, ensemble=False): 3 CV-Fits + 1 finaler Fit.
+            est *= 3
         if cfg.get("tune_mode") == "auto":
             est *= max(cfg.get("tune_n_iter", 20) * cfg.get("tune_cv", 3) / 5, 1.0)
         if cfg.get("cross_validate"):

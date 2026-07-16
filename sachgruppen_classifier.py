@@ -39,6 +39,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.svm import LinearSVC
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
@@ -270,7 +271,8 @@ class SachgruppenClassifier:
                  nn_hidden_layer_sizes: tuple = (100,),
                  nn_alpha: float = 0.0001,
                  nn_learning_rate_init: float = 0.0005,
-                 nn_n_iter_no_change: int = 5):
+                 nn_n_iter_no_change: int = 5,
+                 calibrate: bool = False):
         """
         Args:
             model_type: 'svm', 'logistic', 'rf', 'xgboost', or 'nn' (neural network)
@@ -297,6 +299,12 @@ class SachgruppenClassifier:
             nn_alpha: L2 regularization strength for MLP (default: 0.0001)
             nn_learning_rate_init: Initial learning rate for MLP adam solver (default: 0.0005)
             nn_n_iter_no_change: Early-stopping patience for MLP, in epochs (default: 5)
+            calibrate: Wrap the classifier in CalibratedClassifierCV (Platt/sigmoid,
+                cv=3, ensemble=False) so predicted probabilities are honest and
+                threshold-based auto-accept becomes meaningful. Only applied for
+                'svm' and 'nn' (SVM gains predict_proba, NN loses its softmax
+                overconfidence); other types are unaffected. Roughly triples the
+                classifier-fit time (3 CV fits + 1 final fit).
         """
         self.model_type = model_type
         self.random_state = random_state
@@ -320,6 +328,7 @@ class SachgruppenClassifier:
         self.nn_alpha = nn_alpha
         self.nn_learning_rate_init = nn_learning_rate_init
         self.nn_n_iter_no_change = nn_n_iter_no_change
+        self.calibrate = calibrate
         self.pipeline = None
         self.classes_ = None
         self.label_encoder = None  # XGBoost/NN/RF: string → integer encoding
@@ -471,6 +480,18 @@ class SachgruppenClassifier:
         else:
             raise ValueError(f"Unknown model_type: {self.model_type}")
 
+        # Confidence calibration (SVM/NN only). Platt/sigmoid is robust for the many
+        # rare classes here (isotonic would overfit them). ensemble=False keeps ONE
+        # base model fitted on all training data (identical to an uncalibrated run,
+        # same seed) plus per-class calibrators from 3-fold cross-validated scores —
+        # so accuracy stays comparable and SHAP can explain the base model.
+        # The internal CV runs on already-vectorized features (the vectorizer is a
+        # separate pipeline step), so only the classifier fit is repeated.
+        if self.calibrate and self.model_type in ('svm', 'nn'):
+            classifier = CalibratedClassifierCV(
+                classifier, method='sigmoid', cv=3, ensemble=False,
+            )
+
         # Pipeline assembly: Punctuation → MinLength → Stopwords → Vectorizer → Classifier
         steps = [('punctuation_stripper', PunctuationStripper())]
         if self.min_word_length > 1:
@@ -526,6 +547,29 @@ class SachgruppenClassifier:
             print(f"Labels encoded for {self.model_type.upper()} (string → integer)")
         else:
             y_train_encoded = y_train
+
+        # CalibratedClassifierCV(cv=3) verlangt >= 3 Beispiele je Klasse (jede Klasse
+        # muss in jedem CV-Fold im Training liegen). Klassen mit weniger Belegen
+        # werden für den Fit auf 3 Kopien aufgestockt statt (wie beim Tuning)
+        # ausgeschlossen — so bleibt jede Sachgruppe vorhersagbar. Für den SVM-Fit
+        # ist das dank class_weight='balanced' praktisch gewichtsneutral (das
+        # Gesamtgewicht einer Klasse hängt nicht von der Kopienzahl ab); eine echte
+        # Kalibrierung dieser Klassen ist mangels Daten ohnehin nur nominell.
+        if self.calibrate and self.model_type in ('svm', 'nn'):
+            y_arr = np.asarray(y_train_encoded)
+            vals, counts = np.unique(y_arr, return_counts=True)
+            rare = vals[counts < 3]
+            if len(rare):
+                extra = []
+                for c in rare:
+                    idx = np.where(y_arr == c)[0]
+                    need = 3 - len(idx)
+                    extra.extend(idx[i % len(idx)] for i in range(need))
+                extra = np.asarray(extra)
+                print(f"Calibration: {len(rare)} rare classes (< 3 samples) padded "
+                      f"with {len(extra)} duplicated rows.")
+                X_train = pd.concat([X_train, X_train.iloc[extra]])
+                y_train_encoded = np.concatenate([y_arr, y_arr[extra]])
 
         if tune_hyperparameters:
             self._tune_hyperparameters(X_train, y_train_encoded,
@@ -598,6 +642,13 @@ class SachgruppenClassifier:
         if not param_distributions:
             print("No tuning defined for this model type.")
             return
+
+        # Calibrated classifiers nest the real estimator one level deeper.
+        if self.calibrate and self.model_type in ('svm', 'nn'):
+            param_distributions = {
+                k.replace('classifier__', 'classifier__estimator__'): v
+                for k, v in param_distributions.items()
+            }
 
         # XGBoost requires contiguous integer classes 0..N-1 in every CV fold.
         # Classes with fewer than cv samples are temporarily excluded from the search;
@@ -709,7 +760,9 @@ class SachgruppenClassifier:
         classes = np.asarray(classes).astype(str)
 
         scores = None
-        if self.model_type != 'svm' and hasattr(self.pipeline, 'predict_proba'):
+        # Plain LinearSVC has no predict_proba (hasattr is False → decision_function
+        # below); a calibrated SVM does, and then the probabilities are what counts.
+        if hasattr(self.pipeline, 'predict_proba'):
             try:
                 scores = np.asarray(self.pipeline.predict_proba(X_test), dtype=float)
             except Exception:
@@ -975,6 +1028,7 @@ class SachgruppenClassifier:
                 'nn_alpha': self.nn_alpha,
                 'nn_learning_rate_init': self.nn_learning_rate_init,
                 'nn_n_iter_no_change': self.nn_n_iter_no_change,
+                'calibrate': self.calibrate,
             }, f)
 
         print(f"\nModel saved: {filepath}")
@@ -1018,6 +1072,7 @@ class SachgruppenClassifier:
             nn_alpha=data.get('nn_alpha', 0.0001),
             nn_learning_rate_init=data.get('nn_learning_rate_init', 0.001),
             nn_n_iter_no_change=data.get('nn_n_iter_no_change', 5),
+            calibrate=data.get('calibrate', False),
         )
         instance.pipeline = data['pipeline']
         instance.classes_ = data['classes']
@@ -1038,6 +1093,7 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
                        nn_hidden_layer_sizes=(100,), nn_alpha=0.0001,
                        nn_learning_rate_init=0.0005, nn_n_iter_no_change=5,
+                       calibrate=False,
                        tune_n_iter=20, tune_cv=3,
                        cross_validate=False, cv_folds=5, cv_mode='stratified',
                        progress_callback=None):
@@ -1206,6 +1262,7 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         nn_alpha=nn_alpha,
         nn_learning_rate_init=nn_learning_rate_init,
         nn_n_iter_no_change=nn_n_iter_no_change,
+        calibrate=calibrate,
     )
     clf.train(X_train, y_train, tune_hyperparameters=tune,
               tune_n_iter=tune_n_iter, tune_cv=tune_cv,
@@ -1453,6 +1510,10 @@ if __name__ == '__main__':
                         help='NN: L2 regularization strength (default: 0.0001)')
     parser.add_argument('--nn-learning-rate-init', type=float, default=0.0005,
                         help='NN: initial learning rate for adam solver (default: 0.0005)')
+    parser.add_argument('--calibrate', action='store_true',
+                        help='Konfidenzen kalibrieren (CalibratedClassifierCV, Platt/sigmoid, '
+                             'cv=3): SVM bekommt damit echte Wahrscheinlichkeiten, das NN wird '
+                             'entschärft. Wirkt nur bei --model svm/nn; Klassifikator-Fit ~3x.')
     parser.add_argument('--nn-n-iter-no-change', type=int, default=5,
                         help='NN: early-stopping patience in epochs (default: 5)')
     parser.add_argument('--use-svd', action='store_true',
@@ -1590,6 +1651,7 @@ if __name__ == '__main__':
                     nn_alpha=args.nn_alpha,
                     nn_learning_rate_init=args.nn_learning_rate_init,
                     nn_n_iter_no_change=args.nn_n_iter_no_change,
+                    calibrate=args.calibrate,
                     use_svd=args.use_svd,
                     svd_components=args.svd_components,
                     tune_n_iter=args.tune_n_iter,
@@ -1636,6 +1698,7 @@ if __name__ == '__main__':
                 "nn_alpha": args.nn_alpha if model == 'nn' else None,
                 "nn_learning_rate_init": args.nn_learning_rate_init if model == 'nn' else None,
                 "nn_n_iter_no_change": args.nn_n_iter_no_change if model == 'nn' else None,
+                "calibrate": args.calibrate and model in ('svm', 'nn'),
                 "use_svd": args.use_svd,
                 "svd_components": args.svd_components if args.use_svd else None,
                 "cross_validation": cv_results,

@@ -241,6 +241,13 @@ def get_word_shap_scores(
         )
     vectorizer_step = named_steps["vectorizer"]
     classifier_step = named_steps["classifier"]
+    # Calibrated models (CalibratedClassifierCV, ensemble=False): explain the single
+    # base model fitted on all training data. The monotone sigmoid calibration only
+    # rescales confidences; which words speak for the class is a property of the
+    # base model — and LinearExplainer needs its coef_ anyway.
+    from sklearn.calibration import CalibratedClassifierCV
+    if isinstance(classifier_step, CalibratedClassifierCV):
+        classifier_step = classifier_step.calibrated_classifiers_[0].estimator
 
     # Transform input to feature space (all steps before the classifier)
     X_preprocessed = X_pred_df

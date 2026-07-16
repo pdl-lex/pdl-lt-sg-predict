@@ -196,7 +196,7 @@ Die Datei `.env` im Projektordner enthält die Laufzeitkonfiguration:
 | Variable | Bedeutung | Beispiel |
 |:---|:---|:---|
 | `MODELS_DIR` | Verzeichnis zur Speicherung der trainierten Modelle (im Entwicklungsbetrieb außerhalb des Projektordners sinnvoll, damit `uvicorn --reload` bei neuen Modellen nicht neu startet). Bei relativem Pfad: relativ zum Projektordner. | `models` oder `/data/sg-models` |
-| `ENABLE_TRAINING` | Aktiviert oder deaktiviert die Training-Funktionalität. Auf schwachen VMs oder Produktionssystemen auf `False` setzen. | `True` / `False` |
+| `ENABLE_TRAINING` | Aktiviert oder deaktiviert die Training-Funktionalität (UI **und** `/api/training/*`-Endpunkte, letztere antworten dann mit 403). Auf öffentlich erreichbaren Instanzen **immer** auf `False` setzen — die Trainings-Endpunkte haben keine Authentifizierung. Im Docker-Image ist `False` voreingestellt. | `True` / `False` |
 | `SESSIONS_DIR` | Verzeichnis für Uploads und Trainings-Fortschrittsdateien. Bei relativem Pfad: relativ zum Projektordner. | `.sessions` |
 | `CORS_ORIGINS` | Erlaubte CORS-Origins (kommasepariert); nur für den Vite-Dev-Server nötig, in Produktion liefert das Backend das Frontend same-origin aus. | `http://localhost:5173` |
 

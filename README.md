@@ -86,6 +86,10 @@ docker build -t lt-sg-predict .
 docker run -p 8000:8000 lt-sg-predict
 ```
 
+Im Image ist `ENABLE_TRAINING=False` voreingestellt: Die Trainings-Endpunkte
+(`/api/training/*`) haben keine Authentifizierung und dürfen deshalb nicht öffentlich
+erreichbar sein. Für interne Instanzen mit Training: `docker run -e ENABLE_TRAINING=True …`
+
 ---
 
 ## Modelle & Konfiguration
@@ -94,6 +98,9 @@ docker run -p 8000:8000 lt-sg-predict
   über <https://lexoterm.de/static/sgpredict-models.zip> nachgeladen werden.
 - `.env` (aus Vorlage) steuert `MODELS_DIR`, `SESSIONS_DIR` und `ENABLE_TRAINING` sowie
   optionale SMTP-Werte für CLI-Benachrichtigungen.
+- **Öffentliche Deployments:** `ENABLE_TRAINING=False` setzen (im Docker-Image bereits
+  Default) — die Trainings-Endpunkte haben keine Authentifizierung und sind nur für
+  lokale/interne Instanzen gedacht. Die Vorhersage-Endpunkte bleiben davon unberührt.
 
 ---
 

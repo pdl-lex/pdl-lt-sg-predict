@@ -94,7 +94,9 @@ def class_scores(clf, X_test):
         classes = clf.label_encoder.inverse_transform(classes)
     classes = np.asarray(classes).astype(str)
 
-    if hasattr(clf.pipeline, "predict_proba") and clf.model_type != "svm":
+    # Nackte LinearSVC hat kein predict_proba (hasattr False -> decision_function);
+    # eine kalibrierte SVM hat eins, und dann zaehlen die Wahrscheinlichkeiten.
+    if hasattr(clf.pipeline, "predict_proba"):
         try:
             scores = np.asarray(clf.pipeline.predict_proba(X_test), dtype=float)
             return scores, classes
