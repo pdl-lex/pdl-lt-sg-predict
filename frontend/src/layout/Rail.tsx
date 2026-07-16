@@ -67,10 +67,11 @@ function RailGroup({ g, open, onToggle }: { g: MenuGroup; open: boolean; onToggl
 }
 
 export function Rail() {
-  const { railPinned, setRailPinned, activeId } = useWorkbench()
+  const { railPinned, setRailPinned, activeId, setActiveId } = useWorkbench()
   const [hover, setHover] = useState(false)
-  const activeGroup = MENU.find((g) => g.items.some((it) => it.id === activeId))?.group ?? MENU[0].group
-  const [openGroup, setOpenGroup] = useState<string | null>(activeGroup)
+  // null, wenn das aktive Modul in keiner Menü-Gruppe liegt (z. B. API-Referenz).
+  const activeGroup = MENU.find((g) => g.items.some((it) => it.id === activeId))?.group ?? null
+  const [openGroup, setOpenGroup] = useState<string | null>(activeGroup ?? MENU[0].group)
   const expanded = railPinned || hover
 
   return (
@@ -87,6 +88,9 @@ export function Rail() {
             <RailGlyph key={g.group} icon={g.icon} label={g.group} active={g.group === activeGroup} count={g.items.length} />
           ))}
           <span style={{ flex: 1 }} />
+          <span onClick={(e) => { e.stopPropagation(); setActiveId('api') }}>
+            <RailGlyph icon="api" label="API-Referenz" active={activeId === 'api'} count={0} />
+          </span>
           <RailGlyph icon="settings" label="Einstellungen" active={false} count={0} />
         </div>
       )}
@@ -124,6 +128,10 @@ export function Rail() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--lt-line-1)', padding: '8px' }}>
+          <button onClick={() => setActiveId('api')} style={railRow(activeId === 'api')}>
+            <Icon name="api" size={15} style={{ color: activeId === 'api' ? 'var(--lt-primary)' : 'var(--lt-fg-3)' }} />
+            <span style={{ flex: 1, fontSize: 13, fontWeight: activeId === 'api' ? 600 : 400 }}>API-Referenz</span>
+          </button>
           <button style={railRow(false)}>
             <Icon name="settings" size={15} style={{ color: 'var(--lt-fg-3)' }} />
             <span style={{ flex: 1, fontSize: 13 }}>Einstellungen</span>

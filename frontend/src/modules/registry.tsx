@@ -3,6 +3,7 @@
 // optional Footer (Primäraktion) und Main (Ergebnis-Panel).
 import type { FC, ReactNode } from 'react'
 import type { IconName } from '../design/icons'
+import { ApiInfoConfig, ApiInfoMain } from './apiInfo'
 import { EinfuehrungConfig, EinfuehrungMain } from './einfuehrung'
 import { SingleProvider, SingleConfig, SingleFooter, SingleMain } from './predictSingle'
 import { BatchProvider, BatchConfig, BatchFooter, BatchMain } from './predictBatch'
@@ -63,6 +64,14 @@ export const MODULES: ModuleDef[] = [
     eyebrow: 'Modelle', title: 'Training',
     description: 'Training neuer Modelle (einzeln oder als Batch) auf eigenen Daten.',
     Provider: TrainingProvider, Config: TrainingConfig, Footer: TrainingFooter, Main: TrainingMain,
+  },
+  {
+    // Gruppe "System" steht nicht in MODULE_GROUPS: erreichbar über den
+    // API-Button unten in der Rail (und die Befehlspalette), nicht übers Menü.
+    id: 'api', label: 'API-Referenz', group: 'System', icon: 'api',
+    eyebrow: 'System', title: 'API-Referenz', tag: 'REST',
+    description: 'REST-Endpunkte für Einzel- und Batch-Vorhersage mit Beispielabfragen.',
+    Provider: Passthrough, Config: ApiInfoConfig, Main: ApiInfoMain,
   },
 ]
 

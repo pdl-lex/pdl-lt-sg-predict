@@ -7,7 +7,7 @@ export type IconName =
   | 'table' | 'file' | 'folder' | 'book' | 'flask' | 'command' | 'bolt'
   | 'refresh' | 'dot' | 'diamond' | 'sparkle' | 'pin'
   | 'panelL' | 'panelR' | 'panelB' | 'panelT' | 'layers'
-  | 'chart' | 'list' | 'brain' | 'info' | 'warn'
+  | 'chart' | 'list' | 'brain' | 'info' | 'warn' | 'api'
 
 const PATHS: Record<IconName, JSX.Element> = {
   search: <><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></>,
@@ -46,6 +46,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   brain: <><path d="M6 2.5a2 2 0 0 0-2 2 2 2 0 0 0-1 3.5 2 2 0 0 0 1 3.5 2 2 0 0 0 4 0V4a1.5 1.5 0 0 0-2-1.5z" /><path d="M10 2.5a2 2 0 0 1 2 2 2 2 0 0 1 1 3.5 2 2 0 0 1-1 3.5 2 2 0 0 1-4 0" /></>,
   info: <><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 5.2h.01" /></>,
   warn: <><path d="M8 2 14.5 13.5H1.5z" /><path d="M8 6.5v3.5M8 12h.01" /></>,
+  api: <><path d="M4.5 4.5 1.5 8l3 3.5" /><path d="M11.5 4.5 14.5 8l-3 3.5" /><path d="M9.5 2.5 6.5 13.5" /></>,
 }
 
 export function Icon({
