@@ -144,7 +144,7 @@ class TrainingManager:
         # Zeitschätzung für die geglättete Fortschrittsanzeige.
         est = self.time_per_type.get(cfg.get("model", "svm"),
                                      _TIME_FALLBACKS.get(cfg.get("model", "svm"), 120.0))
-        if cfg.get("calibrate") and cfg.get("model", "svm") in ("svm", "nn"):
+        if cfg.get("calibrate") and cfg.get("model", "svm") == "svm":
             # CalibratedClassifierCV (cv=3, ensemble=False): 3 CV-Fits + 1 finaler Fit.
             est *= 3
         if cfg.get("tune_mode") == "auto":

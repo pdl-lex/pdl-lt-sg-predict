@@ -113,7 +113,7 @@ erreichbar sein. Für interne Instanzen mit Training: `docker run -e ENABLE_TRAI
 | **Batch-Vorhersage** | CSV → Vorhersagen als Tabelle, CSV-Export |
 | **Analyse** | Vergleich aller Modelle, Klassifikations-Report, Modellwahl |
 | **Sachgruppen** | Taxonomie (Hallig-Wartburg) mit Precision/Recall/F1 des besten Modells |
-| **Training** | Einzel-/Batch-Training, Hyperparameter-Tuning, Live-Fortschritt |
+| **Training** | Einzel-/Batch-Training, Hyperparameter-Tuning, Cross-Validation, Konfidenz-Kalibrierung, Live-Fortschritt |
 
 ---
 
@@ -129,6 +129,9 @@ Grundlage für die geplante öffentliche Vorhersage-API:
 | `POST` | `/api/predict/batch` | CSV-Upload → Vorhersagen |
 | `GET` | `/api/sachgruppen` | Sachgruppen + Metriken |
 | `*` | `/api/training/*` | Upload, Start (Einzel/Batch), Status |
+
+Interaktive Doku: `/docs` (Swagger UI) und `/openapi.json`; in der App auch über das Modul
+**API-Referenz** (Rail-Button) mit Beispielabfragen.
 
 ---
 

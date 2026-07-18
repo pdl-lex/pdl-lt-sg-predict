@@ -2,6 +2,10 @@
 
 Dieses Werkzeug trainiert Machine-Learning-Modelle zur automatischen Klassifikation von Wörterbuch-Einträgen in Sachgruppen. Die Eingabe besteht aus Lemma und Bedeutung, die Ausgabe ist eine Sachgruppen-Nummer.
 
+Für den programmatischen Zugriff steht eine REST-API bereit (Modul **API-Referenz**,
+erreichbar über den Rail-Button unten links) mit Beispielabfragen sowie Links zur
+interaktiven Swagger-UI (`/docs`) und zum OpenAPI-Schema.
+
 ---
 
 ## 1. Trainingsdaten (CSV)
@@ -40,8 +44,8 @@ Das Produkt TF × IDF ist direkt der Wert in der jeweiligen Dimension — es gib
 Klassischer Support Vector Machine-Klassifikator (liblinear, One-vs-Rest). Guter Standard für Textklassifikation: schnell, robust, meist gute Accuracy.
 
 - **Stärken:** Schnell, gut bei hochdimensionalen Sparse-Features (TF-IDF), bewährt für Texte.
-- **Schwächen:** Keine Wahrscheinlichkeitsschätzungen (Vorhersage-Konfidenz ist 0).
-- **Trainingsdauer** (~113k Samples): ca. 2 Minuten.
+- **Schwächen:** Ohne Zusatzschritt keine Wahrscheinlichkeitsschätzungen (Vorhersage-Konfidenz ist 0) – per „Kalibrieren" nachrüstbar (→ Abschnitt 5).
+- **Trainingsdauer** (~113k Samples): ca. 2 Minuten (mit Kalibrierung ca. 3×).
 
 ### Logistic Regression (`logistic`)
 Lineares Modell mit Softmax-Ausgabe (SAGA-Solver). Ähnlich wie SVM, gibt aber echte Wahrscheinlichkeiten aus.
@@ -96,7 +100,39 @@ Bestimmt, welche Texteinheiten als Features verwendet werden:
 
 ---
 
-## 4. Batch-Training
+## 4. Cross-Validation (optional)
+
+Ergänzt den normalen Train/Test-Split um eine **k-fache Kreuzvalidierung** auf dem
+Gesamtdatensatz — eine vom Zufalls-Split unabhängige Genauigkeitsschätzung. Das Modell wird
+dafür zusätzlich `k`-mal trainiert (Dauer ≈ `(1 + k) ×` Einzeltraining). Nur beim
+Einzeltraining verfügbar, nicht im Batch.
+
+**Fold-Strategie:**
+- **Stratified** (Standard): Erhält die Klassenverteilung je Fold.
+- **Group**: `GroupKFold` nach der `bedeutung`-Zeichenkette — identische Glossen landen immer
+  im selben Fold, nie gleichzeitig in Training und Test. Deckt auf, ob das Modell nur
+  Dubletten memoriert statt echt zu generalisieren; ergibt eine realistischere, meist etwas
+  niedrigere Schätzung als Stratified.
+
+Ergebnis: Mittelwert ± Standardabweichung der Accuracy über alle Folds, zum Abgleich mit der
+Split-Accuracy des regulären Trainings.
+
+---
+
+## 5. Konfidenz-Kalibrierung (`svm`)
+
+Eine lineare SVM liefert standardmäßig keine echten Wahrscheinlichkeiten, nur eine Distanz
+zur Trennebene. Der Schalter **„Kalibrieren"** wrappt sie in ein Platt-Scaling
+(`CalibratedClassifierCV`, Sigmoid) und macht die Konfidenz dadurch als Prozentwert
+interpretierbar — Trainingsdauer steigt dabei auf etwa das Dreifache.
+
+Wirkt nur bei der SVM: Logistic Regression, Random Forest, Neural Network und XGBoost liefern
+über ihre eigene Modellstruktur bereits Wahrscheinlichkeiten; der Schalter ist dort nicht
+sichtbar bzw. wirkungslos.
+
+---
+
+## 6. Batch-Training
 
 Das Batch-Training trainiert automatisch **alle Kombinationen** der gewählten Optionen in einem Durchlauf. Man wählt jeweils mehrere Werte für:
 
@@ -109,7 +145,7 @@ Aus dem **kartesischen Produkt** aller Auswahlmöglichkeiten entstehen alle Konf
 
 ---
 
-## 5. Analyse-Seite
+## 7. Analyse-Seite
 
 Die Analyse-Seite zeigt alle gespeicherten Modelle in einer Tabelle. Die Tabelle lädt automatisch beim Seitenaufruf; über das Pfeil-Icon kann sie manuell neu geladen werden.
 
@@ -133,12 +169,12 @@ Die Analyse-Seite zeigt alle gespeicherten Modelle in einer Tabelle. Die Tabelle
 | Stoppw. | Wurden Stoppwörter entfernt? |
 
 **Modell auswählen:** Durch Klick auf eine Zeile (oder die Checkbox) wird das Modell markiert. Es erscheinen zwei Buttons:
-- **Klassifikations-Report**: Öffnet den detaillierten Report (→ Abschnitt 6).
+- **Klassifikations-Report**: Öffnet den detaillierten Report (→ Abschnitt 8).
 - **Modell für Vorhersage auswählen**: Wechselt zur Vorhersage-Seite mit diesem Modell vorausgewählt.
 
 ---
 
-## 6. Klassifikations-Report
+## 8. Klassifikations-Report
 
 Nach jedem Training wird ein Klassifikations-Report gespeichert. Er zeigt pro Sachgruppe:
 
@@ -161,19 +197,19 @@ Nach jedem Training wird ein Klassifikations-Report gespeichert. Er zeigt pro Sa
 
 ---
 
-## 7. Vorhersage
+## 9. Vorhersage
 
 Auf der Vorhersage-Seite kann ein gespeichertes Modell geladen und für Klassifikationen verwendet werden.
 
 ### Einzelvorhersage
-Eingabe von Lemma und Bedeutung → das Modell gibt die wahrscheinlichste Sachgruppe zurück. Bei Modellen, die Wahrscheinlichkeiten unterstützen (Logistic Regression, Random Forest, Neural Network), wird zusätzlich die Konfidenz angezeigt.
+Eingabe von Lemma und Bedeutung → das Modell gibt die wahrscheinlichste Sachgruppe zurück. Bei Modellen, die Wahrscheinlichkeiten liefern (Logistic Regression, Random Forest, Neural Network sowie SVM mit aktivierter Kalibrierung, s. Abschnitt 5), wird zusätzlich die Konfidenz angezeigt; eine unkalibrierte SVM zeigt keine Konfidenz.
 
 ### Batch-Vorhersage
 CSV-Datei mit den Spalten `lemma` und `bedeutung` hochladen → alle Einträge werden klassifiziert und das Ergebnis als Download-CSV bereitgestellt.
 
 ---
 
-## 8. SHAP-Analyse
+## 10. SHAP-Analyse
 
 Nach einer Einzelvorhersage wird automatisch eine **SHAP-Erklärung** berechnet. SHAP (SHapley Additive exPlanations) zeigt, welche Wörter die Vorhersage beeinflusst haben:
 
@@ -189,7 +225,7 @@ Der Schalter **„Stoppwörter ausblenden"** filtert Funktionswörter aus der Da
 
 ---
 
-## 9. Konfiguration (.env)
+## 11. Konfiguration (.env)
 
 Die Datei `.env` im Projektordner enthält die Laufzeitkonfiguration:
 

@@ -302,9 +302,10 @@ class SachgruppenClassifier:
             calibrate: Wrap the classifier in CalibratedClassifierCV (Platt/sigmoid,
                 cv=3, ensemble=False) so predicted probabilities are honest and
                 threshold-based auto-accept becomes meaningful. Only applied for
-                'svm' and 'nn' (SVM gains predict_proba, NN loses its softmax
-                overconfidence); other types are unaffected. Roughly triples the
-                classifier-fit time (3 CV fits + 1 final fit).
+                'svm' (gains predict_proba); other types are unaffected, including
+                'nn' — its softmax is already well calibrated, and Platt scaling
+                measurably makes it worse (see evaluate_calibration.py, 07/2026).
+                Roughly triples the classifier-fit time (3 CV fits + 1 final fit).
         """
         self.model_type = model_type
         self.random_state = random_state
@@ -480,14 +481,16 @@ class SachgruppenClassifier:
         else:
             raise ValueError(f"Unknown model_type: {self.model_type}")
 
-        # Confidence calibration (SVM/NN only). Platt/sigmoid is robust for the many
-        # rare classes here (isotonic would overfit them). ensemble=False keeps ONE
-        # base model fitted on all training data (identical to an uncalibrated run,
-        # same seed) plus per-class calibrators from 3-fold cross-validated scores —
-        # so accuracy stays comparable and SHAP can explain the base model.
-        # The internal CV runs on already-vectorized features (the vectorizer is a
-        # separate pipeline step), so only the classifier fit is repeated.
-        if self.calibrate and self.model_type in ('svm', 'nn'):
+        # Confidence calibration (SVM only — NN's softmax is already well calibrated
+        # and Platt scaling measurably makes it worse, see evaluate_calibration.py).
+        # Platt/sigmoid is robust for the many rare classes here (isotonic would
+        # overfit them). ensemble=False keeps ONE base model fitted on all training
+        # data (identical to an uncalibrated run, same seed) plus per-class
+        # calibrators from 3-fold cross-validated scores — so accuracy stays
+        # comparable and SHAP can explain the base model. The internal CV runs on
+        # already-vectorized features (the vectorizer is a separate pipeline step),
+        # so only the classifier fit is repeated.
+        if self.calibrate and self.model_type == 'svm':
             classifier = CalibratedClassifierCV(
                 classifier, method='sigmoid', cv=3, ensemble=False,
             )
@@ -582,7 +585,7 @@ class SachgruppenClassifier:
         # werden für den Fit auf 3 Kopien aufgestockt statt (wie beim Tuning)
         # ausgeschlossen — so bleibt jede Sachgruppe vorhersagbar. Eine echte
         # Kalibrierung dieser Klassen ist mangels Daten ohnehin nur nominell.
-        if self.calibrate and self.model_type in ('svm', 'nn'):
+        if self.calibrate and self.model_type == 'svm':
             X_train, y_train_encoded = self._pad_rare_classes(
                 X_train, y_train_encoded, verbose_label="Calibration")
 
@@ -659,7 +662,7 @@ class SachgruppenClassifier:
             return
 
         # Calibrated classifiers nest the real estimator one level deeper.
-        if self.calibrate and self.model_type in ('svm', 'nn'):
+        if self.calibrate and self.model_type == 'svm':
             param_distributions = {
                 k.replace('classifier__', 'classifier__estimator__'): v
                 for k, v in param_distributions.items()
@@ -929,7 +932,7 @@ class SachgruppenClassifier:
         # (same duplicate-padding trick as train(), applied to each fold's train
         # split instead of the whole training set).
         needs_fold_padding = (mode == 'group' and self.calibrate
-                               and self.model_type in ('svm', 'nn'))
+                               and self.model_type == 'svm')
         try:
             if needs_fold_padding:
                 scores = self._cross_val_score_with_padding(
@@ -1562,8 +1565,10 @@ if __name__ == '__main__':
                         help='NN: initial learning rate for adam solver (default: 0.0005)')
     parser.add_argument('--calibrate', action='store_true',
                         help='Konfidenzen kalibrieren (CalibratedClassifierCV, Platt/sigmoid, '
-                             'cv=3): SVM bekommt damit echte Wahrscheinlichkeiten, das NN wird '
-                             'entschärft. Wirkt nur bei --model svm/nn; Klassifikator-Fit ~3x.')
+                             'cv=3): SVM bekommt damit echte Wahrscheinlichkeiten. Wirkt nur bei '
+                             '--model svm (beim NN macht Platt-Scaling die ohnehin gut kalibrierte '
+                             'Softmax messbar schlechter, s. evaluate_calibration.py); '
+                             'Klassifikator-Fit ~3x.')
     parser.add_argument('--nn-n-iter-no-change', type=int, default=5,
                         help='NN: early-stopping patience in epochs (default: 5)')
     parser.add_argument('--use-svd', action='store_true',
@@ -1748,7 +1753,7 @@ if __name__ == '__main__':
                 "nn_alpha": args.nn_alpha if model == 'nn' else None,
                 "nn_learning_rate_init": args.nn_learning_rate_init if model == 'nn' else None,
                 "nn_n_iter_no_change": args.nn_n_iter_no_change if model == 'nn' else None,
-                "calibrate": args.calibrate and model in ('svm', 'nn'),
+                "calibrate": args.calibrate and model == 'svm',
                 "use_svd": args.use_svd,
                 "svd_components": args.svd_components if args.use_svd else None,
                 "cross_validation": cv_results,

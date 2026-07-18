@@ -199,15 +199,16 @@ export function TrainingConfig() {
           <Toggle checked={cfg.use_spacy} onChange={(v) => set('use_spacy', v)} label="spaCy-Wortvektoren (de_core_news_lg)" />
           <Toggle checked={cfg.use_dornseiff} onChange={(v) => set('use_dornseiff', v)} label="Dornseiff-Thesaurus" />
         </div>
-        <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Konfidenzen</div>
-          <Toggle checked={cfg.calibrate} onChange={(v) => set('calibrate', v)}
-            label="Kalibrieren (Platt/sigmoid) – nur SVM/NN, Klassifikator-Fit ≈ 3×" />
-          <Callout tone="info" icon="info">
-            Empfohlen für SVM (bekommt damit echte Wahrscheinlichkeiten). Beim NN laut Messung
-            (07/2026) besser aus: die Softmax ist bereits gut kalibriert, Platt verschlechtert sie.
-          </Callout>
-        </div>
+        {cfg.model === 'svm' && (
+          <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Konfidenzen</div>
+            <Toggle checked={cfg.calibrate} onChange={(v) => set('calibrate', v)}
+              label="Kalibrieren (Platt/sigmoid) – Klassifikator-Fit ≈ 3×" />
+            <Callout tone="info" icon="info">
+              Ergänzt Wahrscheinlichkeiten für SVM.
+            </Callout>
+          </div>
+        )}
         <div style={{ borderTop: '1px solid var(--lt-line-1)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--lt-fg-2)' }}>Cross-Validierung</div>
           <Toggle checked={cfg.cross_validate} onChange={(v) => set('cross_validate', v)}
@@ -311,7 +312,7 @@ function estimateBatch(cfg: Cfg, csv: TrainingCsvInfo | null): string {
   for (const mt of cfg.batch_model_types) {
     const measured = csv?.time_per_type?.[mt]
     let est = measured && measured > 0 ? measured : (TIME_FALLBACK[mt] ?? 120) / TIME_FALLBACK_SAMPLES * n
-    if (cfg.calibrate && (mt === 'svm' || mt === 'nn')) est *= 3
+    if (cfg.calibrate && mt === 'svm') est *= 3
     secs += est * perType
   }
   if (secs <= 0) return ''

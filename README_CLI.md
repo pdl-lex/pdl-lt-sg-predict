@@ -90,6 +90,24 @@ models/svm_char_wb_ml1_sw0_20260327_142301_report.txt
 Auf einer VM mit 20 vCPUs laufen die Fits parallel (`n_jobs=-1`),
 was den Faktor effektiv auf `ceil(n-iter × cv / 20)` reduziert.
 
+### Cross-Validation (split-unabhängige Bewertung)
+
+Zusätzlich zum normalen Train/Test-Split lässt sich eine k-fache Kreuzvalidierung auf dem
+Gesamtdatensatz mitlaufen lassen — eine vom Zufalls-Split unabhängige Genauigkeitsschätzung.
+Nur beim Einzeltraining, nicht im Batch. Dauer ≈ `(1 + cv-folds) × Einzeltraining`.
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--cross-validate` | – | Kreuzvalidierung aktivieren |
+| `--cv-folds N` | `5` | Anzahl Folds (mind. 2) |
+| `--cv-mode` | `stratified` | `stratified` (erhält Klassenverteilung je Fold) oder `group` (`GroupKFold` nach der `bedeutung`-Zeichenkette — identische Glossen bleiben im selben Fold; deckt Dubletten-Memorisierung auf, realistischere, meist niedrigere Schätzung) |
+
+### Konfidenz-Kalibrierung
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--calibrate` | – | Kalibriert Konfidenzen per Platt-Scaling (`CalibratedClassifierCV`, Sigmoid, `cv=3`). Wirkt nur bei `--model svm` (LinearSVC liefert sonst keine echten Wahrscheinlichkeiten); bei anderen Modellen ein No-op, da diese ohnehin `predict_proba` liefern. Fit-Zeit ≈ 3×. |
+
 ### Modell-spezifische Parameter (manuelle Werte ohne Auto-Tune)
 
 | Parameter | Standard | Modell |
@@ -139,6 +157,10 @@ python sachgruppen_classifier.py --csv daten.csv --model xgboost --gpu
 
 # SVM mit manuell gesetztem C-Wert
 python sachgruppen_classifier.py --csv daten.csv --model svm --svm-c 10.0
+
+# SVM mit kalibrierten Konfidenzen + Group-Kreuzvalidierung (Dubletten-Check)
+python sachgruppen_classifier.py --csv daten.csv --model svm --calibrate \
+  --cross-validate --cv-mode group --cv-folds 5
 ```
 
 ---
