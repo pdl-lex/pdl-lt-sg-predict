@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { Kbd, kc } from '../design/widgets'
 import { useWorkbench } from '../state/workbench'
 
 function Item({ dot, k, v }: { dot?: string; k?: string; v: ReactNode }) {
@@ -25,11 +24,7 @@ export function StatusBar() {
       <Item dot={enableTraining ? 'var(--lt-primary)' : 'var(--lt-warn)'} k="Training:" v={enableTraining ? 'aktiv' : 'aus'} />
       <Item k="Daten:" v={config?.models_dir ?? '–'} />
       <span style={{ flex: 1 }} />
-      <Item v="UTF-8" />
-      <Item v="DE" />
-      <span style={{ padding: '0 12px', color: 'var(--lt-fg-4)' }}>
-        <Kbd>{kc('K')}</Kbd> Befehle
-      </span>
+      <span style={{ padding: '0 10px', color: 'var(--lt-fg-4)' }}>Version 0.5</span>
     </footer>
   )
 }

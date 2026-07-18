@@ -21,7 +21,7 @@ geladen, landet nicht in pyproject.toml/uv.lock.
 
 Beispiel:
     uv run --with torch python scripts/benchmark_pytorch_mlp.py \
-        --model models/nn_char_wb_ml1_sw0_20260709_230256.pkl \
+        --model models/nn_lively_kiwi.pkl \
         --csv woerterbuch_daten_124217.csv
 """
 import argparse
@@ -172,7 +172,7 @@ def topk_eval(model, device, X_test, y_test_arr, ks=(1, 3, 5)):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='models/nn_char_wb_ml1_sw0_20260709_230256.pkl',
+    ap.add_argument('--model', default='models/nn_lively_kiwi.pkl',
                      help='sklearn-NN-Pickle, dient nur der Feature-Extraktion (Vectorizer+Scaler)')
     ap.add_argument('--csv', default='data/woerterbuch_daten_124217.csv')
     ap.add_argument('--test-size', type=float, default=0.2)

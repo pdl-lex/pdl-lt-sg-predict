@@ -14,6 +14,7 @@ Mit Lemma + Bedeutung als Features.
 
 import pandas as pd
 import numpy as np
+import sys
 import time
 from pathlib import Path
 import argparse
@@ -21,6 +22,9 @@ from datetime import datetime
 
 from sachgruppen_classifier import SachgruppenClassifier, train_and_evaluate
 from sklearn.model_selection import train_test_split
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from model_naming import generate_model_name
 
 def compare_models(csv_file, save_models=True, test_size=0.2):
     """
@@ -80,7 +84,10 @@ def compare_models(csv_file, save_models=True, test_size=0.2):
             start_time = time.time()
 
             # Training & Evaluation
-            save_path = f"models/model_{model_type}.pkl" if save_models else None
+            save_path = (
+                f"models/{generate_model_name(model_type, Path('models'))}.pkl"
+                if save_models else None
+            )
             clf, accuracy, _report = train_and_evaluate(
                 csv_file,
                 model_type=model_type,

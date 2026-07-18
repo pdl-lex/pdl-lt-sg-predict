@@ -36,32 +36,29 @@ function RailGlyph({ icon, label, active, count }: { icon: IconName; label: stri
   )
 }
 
-function RailGroup({ g, open, onToggle }: { g: MenuGroup; open: boolean; onToggle: () => void }) {
+function RailGroup({ g }: { g: MenuGroup }) {
   const { activeId, setActiveId } = useWorkbench()
   const hasActive = g.items.some((it) => it.id === activeId)
   return (
     <div style={{ marginBottom: 2 }}>
-      <button onClick={onToggle} style={{ ...railRow(hasActive), fontWeight: 600, fontSize: 13 }}>
+      <div style={{ ...railRow(hasActive), fontWeight: 600, fontSize: 13, cursor: 'default' }}>
         <Icon name={g.icon} size={15} style={{ color: hasActive ? 'var(--lt-primary)' : 'var(--lt-fg-3)' }} />
         <span style={{ flex: 1 }}>{g.group}</span>
-        <Icon name={open ? 'chevDown' : 'chevron'} size={10} style={{ color: 'var(--lt-fg-4)' }} />
-      </button>
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '2px 0 4px' }}>
-          {g.items.map((it) => {
-            const active = it.id === activeId
-            return (
-              <button key={it.id} onClick={() => setActiveId(it.id)} style={{
-                ...railRow(active), padding: '5px 8px 5px 34px', fontSize: 12.5,
-                background: active ? 'var(--lt-primary-soft)' : 'transparent',
-                color: active ? 'var(--lt-primary)' : 'var(--lt-fg-2)', fontWeight: active ? 600 : 400,
-              }}>
-                {it.label}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '2px 0 4px' }}>
+        {g.items.map((it) => {
+          const active = it.id === activeId
+          return (
+            <button key={it.id} onClick={() => setActiveId(it.id)} style={{
+              ...railRow(active), padding: '5px 8px 5px 34px', fontSize: 12.5,
+              background: active ? 'var(--lt-primary-soft)' : 'transparent',
+              color: active ? 'var(--lt-primary)' : 'var(--lt-fg-2)', fontWeight: active ? 600 : 400,
+            }}>
+              {it.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -71,7 +68,6 @@ export function Rail() {
   const [hover, setHover] = useState(false)
   // null, wenn das aktive Modul in keiner Menü-Gruppe liegt (z. B. API-Referenz).
   const activeGroup = MENU.find((g) => g.items.some((it) => it.id === activeId))?.group ?? null
-  const [openGroup, setOpenGroup] = useState<string | null>(activeGroup ?? MENU[0].group)
   const expanded = railPinned || hover
 
   return (
@@ -91,7 +87,9 @@ export function Rail() {
           <span onClick={(e) => { e.stopPropagation(); setActiveId('api') }}>
             <RailGlyph icon="api" label="API-Referenz" active={activeId === 'api'} count={0} />
           </span>
-          <RailGlyph icon="settings" label="Einstellungen" active={false} count={0} />
+          <span onClick={(e) => { e.stopPropagation(); setActiveId('info') }}>
+            <RailGlyph icon="info" label="Informationen" active={activeId === 'info'} count={0} />
+          </span>
         </div>
       )}
 
@@ -122,8 +120,7 @@ export function Rail() {
 
         <div style={{ overflowY: 'auto', flex: 1, padding: '8px' }}>
           {MENU.map((g) => (
-            <RailGroup key={g.group} g={g} open={openGroup === g.group}
-              onToggle={() => setOpenGroup(openGroup === g.group ? null : g.group)} />
+            <RailGroup key={g.group} g={g} />
           ))}
         </div>
 
@@ -132,9 +129,9 @@ export function Rail() {
             <Icon name="api" size={15} style={{ color: activeId === 'api' ? 'var(--lt-primary)' : 'var(--lt-fg-3)' }} />
             <span style={{ flex: 1, fontSize: 13, fontWeight: activeId === 'api' ? 600 : 400 }}>API-Referenz</span>
           </button>
-          <button style={railRow(false)}>
-            <Icon name="settings" size={15} style={{ color: 'var(--lt-fg-3)' }} />
-            <span style={{ flex: 1, fontSize: 13 }}>Einstellungen</span>
+          <button onClick={() => setActiveId('info')} style={railRow(activeId === 'info')}>
+            <Icon name="info" size={15} style={{ color: activeId === 'info' ? 'var(--lt-primary)' : 'var(--lt-fg-3)' }} />
+            <span style={{ flex: 1, fontSize: 13, fontWeight: activeId === 'info' ? 600 : 400 }}>Informationen</span>
           </button>
         </div>
       </div>

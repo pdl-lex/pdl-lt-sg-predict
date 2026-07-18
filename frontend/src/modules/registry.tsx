@@ -5,6 +5,7 @@ import type { FC, ReactNode } from 'react'
 import type { IconName } from '../design/icons'
 import { ApiInfoConfig, ApiInfoMain } from './apiInfo'
 import { EinfuehrungConfig, EinfuehrungMain } from './einfuehrung'
+import { InfoConfig, InfoMain } from './info'
 import { SingleProvider, SingleConfig, SingleFooter, SingleMain } from './predictSingle'
 import { BatchProvider, BatchConfig, BatchFooter, BatchMain } from './predictBatch'
 import { AnalyseProvider, AnalyseConfig, AnalyseMain } from './analyse'
@@ -72,6 +73,13 @@ export const MODULES: ModuleDef[] = [
     eyebrow: 'System', title: 'API-Referenz', tag: 'REST',
     description: 'REST-Endpunkte für Einzel- und Batch-Vorhersage mit Beispielabfragen.',
     Provider: Passthrough, Config: ApiInfoConfig, Main: ApiInfoMain,
+  },
+  {
+    // Wie "api": erreichbar über den Info-Button unten in der Rail, nicht übers Menü.
+    id: 'info', label: 'Informationen', group: 'System', icon: 'info',
+    eyebrow: 'System', title: 'Informationen',
+    description: 'Über dieses Werkzeug: Daten, Lizenz, genutzte Software, Impressum.',
+    Provider: Passthrough, Config: InfoConfig, Main: InfoMain,
   },
 ]
 

@@ -518,6 +518,35 @@ class SachgruppenClassifier:
         
         return self.pipeline
     
+    @staticmethod
+    def _pad_rare_classes(X, y, min_count=3, verbose_label=None):
+        """Duplicate rows of classes with < min_count samples up to min_count.
+
+        CalibratedClassifierCV(cv=min_count) needs every class to reach at least
+        min_count examples wherever it fits (see callers). Excluding rare
+        Sachgruppen instead would make them unpredictable, so duplicating is
+        preferred; for SVM this is weight-neutral thanks to
+        class_weight='balanced' (total class weight doesn't depend on the
+        number of copies).
+        """
+        y_arr = np.asarray(y)
+        vals, counts = np.unique(y_arr, return_counts=True)
+        rare = vals[counts < min_count]
+        if not len(rare):
+            return X, y_arr
+        extra = []
+        for c in rare:
+            idx = np.where(y_arr == c)[0]
+            need = min_count - len(idx)
+            extra.extend(idx[i % len(idx)] for i in range(need))
+        extra = np.asarray(extra)
+        if verbose_label:
+            print(f"{verbose_label}: {len(rare)} rare classes (< {min_count} samples) "
+                  f"padded with {len(extra)} duplicated rows.")
+        X_padded = pd.concat([X, X.iloc[extra]])
+        y_padded = np.concatenate([y_arr, y_arr[extra]])
+        return X_padded, y_padded
+
     def train(self, X_train, y_train, tune_hyperparameters=False,
               tune_n_iter=20, tune_cv=3, progress_callback=None):
         """
@@ -551,25 +580,11 @@ class SachgruppenClassifier:
         # CalibratedClassifierCV(cv=3) verlangt >= 3 Beispiele je Klasse (jede Klasse
         # muss in jedem CV-Fold im Training liegen). Klassen mit weniger Belegen
         # werden für den Fit auf 3 Kopien aufgestockt statt (wie beim Tuning)
-        # ausgeschlossen — so bleibt jede Sachgruppe vorhersagbar. Für den SVM-Fit
-        # ist das dank class_weight='balanced' praktisch gewichtsneutral (das
-        # Gesamtgewicht einer Klasse hängt nicht von der Kopienzahl ab); eine echte
+        # ausgeschlossen — so bleibt jede Sachgruppe vorhersagbar. Eine echte
         # Kalibrierung dieser Klassen ist mangels Daten ohnehin nur nominell.
         if self.calibrate and self.model_type in ('svm', 'nn'):
-            y_arr = np.asarray(y_train_encoded)
-            vals, counts = np.unique(y_arr, return_counts=True)
-            rare = vals[counts < 3]
-            if len(rare):
-                extra = []
-                for c in rare:
-                    idx = np.where(y_arr == c)[0]
-                    need = 3 - len(idx)
-                    extra.extend(idx[i % len(idx)] for i in range(need))
-                extra = np.asarray(extra)
-                print(f"Calibration: {len(rare)} rare classes (< 3 samples) padded "
-                      f"with {len(extra)} duplicated rows.")
-                X_train = pd.concat([X_train, X_train.iloc[extra]])
-                y_train_encoded = np.concatenate([y_arr, y_arr[extra]])
+            X_train, y_train_encoded = self._pad_rare_classes(
+                X_train, y_train_encoded, verbose_label="Calibration")
 
         if tune_hyperparameters:
             self._tune_hyperparameters(X_train, y_train_encoded,
@@ -907,14 +922,26 @@ class SachgruppenClassifier:
                   f"{n_excluded_classes} rare classes (< {cv} samples) excluded.")
         print(f"\nRunning {cv}-fold cross-validation "
               f"(mode={mode}, scoring={scoring})...")
+        # GroupKFold doesn't stratify, so a rare Sachgruppe that's fine as a whole
+        # can still drop below CalibratedClassifierCV(cv=3)'s per-fold minimum in
+        # one particular training split. cross_val_score fits clones directly and
+        # has no hook to pad per fold, so run the fold loop by hand in that case
+        # (same duplicate-padding trick as train(), applied to each fold's train
+        # split instead of the whole training set).
+        needs_fold_padding = (mode == 'group' and self.calibrate
+                               and self.model_type in ('svm', 'nn'))
         try:
-            scores = cross_val_score(
-                clone(self.pipeline), X_cv, y_enc,
-                cv=splitter,
-                groups=groups_arg,
-                scoring=scoring,
-                n_jobs=-1,
-            )
+            if needs_fold_padding:
+                scores = self._cross_val_score_with_padding(
+                    X_cv, y_enc, splitter, groups_arg, scoring)
+            else:
+                scores = cross_val_score(
+                    clone(self.pipeline), X_cv, y_enc,
+                    cv=splitter,
+                    groups=groups_arg,
+                    scoring=scoring,
+                    n_jobs=-1,
+                )
         except ValueError as exc:
             # e.g. XGBoost rejecting non-contiguous labels when group folds leave a
             # class entirely out of a training split.
@@ -941,6 +968,29 @@ class SachgruppenClassifier:
         if n_groups is not None:
             result['n_groups'] = n_groups
         return result
+
+    def _cross_val_score_with_padding(self, X, y, splitter, groups, scoring):
+        """Like cross_val_score, but pads rare classes within each training fold
+        (see _pad_rare_classes) before fitting the cloned pipeline. Needed for
+        calibrated group-mode CV, where GroupKFold's lack of stratification can
+        starve CalibratedClassifierCV's internal cv=3 split in any given fold.
+        """
+        from joblib import Parallel, delayed
+        from sklearn.base import clone
+        from sklearn.metrics import get_scorer
+
+        scorer = get_scorer(scoring)
+
+        def _fit_and_score(train_idx, test_idx):
+            X_train, y_train = self._pad_rare_classes(X.iloc[train_idx], y[train_idx])
+            estimator = clone(self.pipeline).fit(X_train, y_train)
+            return scorer(estimator, X.iloc[test_idx], y[test_idx])
+
+        splits = list(splitter.split(X, y, groups))
+        scores = Parallel(n_jobs=-1)(
+            delayed(_fit_and_score)(train_idx, test_idx) for train_idx, test_idx in splits
+        )
+        return np.asarray(scores)
 
     def predict(self, texts):
         """Predict labels for new texts."""
@@ -1615,10 +1665,10 @@ if __name__ == '__main__':
                       f"min_length={min_len}  stopwords={sw}")
                 print("-" * 60)
 
-            # Derive filename from configuration
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            sw_tag = "sw1" if sw else "sw0"
-            stem = f"{model}_{analyzer}_ml{min_len}_{sw_tag}_{ts}"
+            # Adjektiv-Frucht-Name statt Parameter/Zeitstempel im Dateinamen —
+            # die volle Konfiguration steht ohnehin in der Metadaten-Datei.
+            from model_naming import generate_model_name
+            stem = generate_model_name(model, Path(args.output_dir))
             save_path = os.path.join(args.output_dir, f"{stem}.pkl")
 
             _start = _time.time()

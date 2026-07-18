@@ -55,8 +55,9 @@ def newest_model_for(model_type: str) -> Path | None:
     ]
     if not candidates:
         return None
-    # Zeitstempel steckt im Namen; mtime als robuster Fallback.
-    return max(candidates, key=lambda p: (p.stem, p.stat().st_mtime))
+    # Namen sind Adjektiv-Frucht-Kombinationen (nicht chronologisch sortierbar),
+    # daher mtime als einziges Kriterium.
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def time_predict(clf: SachgruppenClassifier, X: pd.DataFrame, repeats: int) -> list[float]:

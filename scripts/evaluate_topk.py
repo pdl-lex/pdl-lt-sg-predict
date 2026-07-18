@@ -12,7 +12,7 @@ Der Test-Split wird exakt wie in train_and_evaluate() reproduziert
 
 Beispiel:
     python scripts/evaluate_topk.py \
-        --model models/svm_char_wb_ml1_sw0_001.pkl \
+        --model models/svm_blue_banana.pkl \
         --csv data/woerterbuch_daten.csv
 """
 
@@ -47,21 +47,34 @@ def reproduce_test_split(csv_file: str, test_size: float = 0.2):
         X_multi, y_multi = X[~mask_single], y[~mask_single]
         try:
             X_train, X_test, y_train, y_test = train_test_split(
-                X_multi, y_multi, test_size=test_size,
-                random_state=42, stratify=y_multi,
+                X_multi,
+                y_multi,
+                test_size=test_size,
+                random_state=42,
+                stratify=y_multi,
             )
         except ValueError:
             X_train, X_test, y_train, y_test = train_test_split(
-                X_multi, y_multi, test_size=test_size, random_state=42,
+                X_multi,
+                y_multi,
+                test_size=test_size,
+                random_state=42,
             )
     else:
         try:
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=42, stratify=y,
+                X,
+                y,
+                test_size=test_size,
+                random_state=42,
+                stratify=y,
             )
         except ValueError:
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=42,
+                X,
+                y,
+                test_size=test_size,
+                random_state=42,
             )
     return X_test, y_test, y_train
 
@@ -107,13 +120,18 @@ def class_scores(clf, X_test):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--model", required=True, help="Pfad zur .pkl-Modelldatei")
     ap.add_argument("--csv", default="data/woerterbuch_daten.csv", help="Trainings-CSV")
     ap.add_argument("--test-size", type=float, default=0.2)
-    ap.add_argument("--group-len", type=int, default=2,
-                    help="Stellen des Sachgruppen-Codes fuer die Hierarchie-Gruppe")
+    ap.add_argument(
+        "--group-len",
+        type=int,
+        default=2,
+        help="Stellen des Sachgruppen-Codes fuer die Hierarchie-Gruppe",
+    )
     args = ap.parse_args()
 
     print(f"Lade Modell: {args.model}")
@@ -131,7 +149,7 @@ def main():
 
     # Ranking pro Zeile (absteigend)
     order = np.argsort(scores, axis=1)[:, ::-1]
-    ranked_labels = classes[order]                    # (n, n_classes)
+    ranked_labels = classes[order]  # (n, n_classes)
     pred1 = ranked_labels[:, 0]
     correct1 = pred1 == y_true
 
@@ -155,20 +173,22 @@ def main():
     print("=" * 60)
     print(f"  Top-1 richtige Gruppe:        {hier:.4f}")
     if wrong.sum() > 0:
-        print(f"  davon Top-1-Fehler, aber richtige Gruppe: "
-              f"{near_miss}/{wrong.sum()} = {near_miss/wrong.sum():.1%} der Fehler sind Nachbar-Treffer")
+        print(
+            f"  davon Top-1-Fehler, aber richtige Gruppe: "
+            f"{near_miss}/{wrong.sum()} = {near_miss / wrong.sum():.1%} der Fehler sind Nachbar-Treffer"
+        )
 
     # Konfidenz-/Abdeckungs-Kurve
     sorted_scores = np.sort(scores, axis=1)[:, ::-1]
-    margin = sorted_scores[:, 0] - sorted_scores[:, 1]   # Abstand #1 zu #2
-    idx = np.argsort(margin)[::-1]                        # sicherste zuerst
+    margin = sorted_scores[:, 0] - sorted_scores[:, 1]  # Abstand #1 zu #2
+    idx = np.argsort(margin)[::-1]  # sicherste zuerst
     correct_sorted = correct1[idx]
     n = len(correct_sorted)
     print("\n" + "=" * 60)
-    print("KONFIDENZ / ABDECKUNG  (Top-1 automatisch akzeptieren)")
+    print("KONFIDENZ / ABDECKUNG")
     print("=" * 60)
     print(f"  {'Abdeckung':>10} | {'Top-1-Accuracy auf akzept. Teil':>32}")
-    print(f"  {'-'*10} | {'-'*32}")
+    print(f"  {'-' * 10} | {'-' * 32}")
     for cov in (0.5, 0.6, 0.7, 0.8, 0.9, 1.0):
         m = max(1, int(n * cov))
         print(f"  {cov:>9.0%} | {correct_sorted[:m].mean():>32.4f}")

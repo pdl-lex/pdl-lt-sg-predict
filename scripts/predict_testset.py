@@ -11,8 +11,8 @@ pro Zeile ungueltig.
 
 Beispiel:
     python scripts/predict_testset.py \
-        --models models/nn_char_wb_ml1_sw0_20260709_230251.pkl \
-                 models/nn_char_wb_ml1_sw0_20260710_000447.pkl \
+        --models models/nn_humble_peach.pkl \
+                 models/nn_humble_coconut.pkl \
         --csv data/baseline_test.csv \
         --out data/predictions_nn_addons.csv
 """

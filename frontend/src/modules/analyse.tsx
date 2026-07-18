@@ -22,20 +22,19 @@ const useAnalyse = () => {
 }
 
 const COLUMNS: Column[] = [
-  { key: 'model_file', label: 'Datei', mono: true },
-  { key: 'model_name', label: 'Modell', width: 150 },
-  { key: 'accuracy', label: 'Accuracy', width: 100, align: 'right', mono: true },
-  { key: 'training_time', label: 'Zeit', width: 96, mono: true },
+  { key: 'model_file', label: 'Modell', mono: true },
+  { key: 'model_name', label: 'Typ', width: 150 },
   { key: 'date', label: 'Datum', width: 86 },
+  { key: 'accuracy', label: 'Accuracy', width: 100, align: 'right', mono: true },
+  { key: 'group_kfold_accuracy', label: 'GroupKFold Accuracy', width: 160, align: 'right', mono: true },
+  { key: 'precision', label: 'Precision', width: 100, align: 'right', mono: true },
+  { key: 'recall', label: 'Recall', width: 96, align: 'right', mono: true },
+  { key: 'f1_score', label: 'F1-Score', width: 100, align: 'right', mono: true },
+  { key: 'top1_confidence', label: 'Top1-Konfidenz', width: 124, align: 'right', mono: true },
+  { key: 'top3_confidence', label: 'Top3-Konfidenz', width: 124, align: 'right', mono: true },
   { key: 'num_samples', label: 'Samples', width: 92, align: 'right', mono: true },
-  { key: 'num_classes', label: 'Klassen', width: 86, align: 'right', mono: true },
-  { key: 'test_size', label: 'Test', width: 74 },
-  { key: 'use_lemma', label: 'Lemma', width: 80 },
   { key: 'use_spacy', label: 'spaCy', width: 80 },
   { key: 'use_dornseiff', label: 'Dornseiff', width: 96 },
-  { key: 'min_word_len', label: 'Min-Länge', width: 96 },
-  { key: 'analyzer', label: 'Analyzer', width: 104 },
-  { key: 'stopwords_removed', label: 'Stoppw.', width: 88 },
 ]
 
 const stemOf = (file: string) => file.replace(/\.pkl$/, '')
