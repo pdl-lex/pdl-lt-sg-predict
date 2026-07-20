@@ -240,6 +240,98 @@ class DornseiffVectorizer(BaseEstimator, TransformerMixin):
         return state
 
 
+class SubwordTfidfVectorizer(BaseEstimator, TransformerMixin):
+    """TF-IDF over *learned* subword units instead of fixed character windows.
+
+    char_wb slides every 2–5-character window over the string, which is blind to
+    morpheme boundaries. A SentencePiece model instead learns a vocabulary of
+    recurring units, so "-schaft", "ge-" or a dialect stem become single tokens.
+
+    The model is trained inside fit() on the training documents only — the test
+    split never influences the vocabulary. It is kept as raw bytes so the
+    estimator pickles cleanly; the SentencePieceProcessor is rebuilt lazily
+    (same pattern as DornseiffVectorizer's nlp object).
+
+    Requires the optional `sentencepiece` package; imported lazily so the
+    production install is unaffected.
+    """
+
+    def __init__(self, vocab_size: int = 8000, ngram_range: tuple = (1, 2),
+                 max_features: int | None = None, min_df: int = 2,
+                 sublinear_tf: bool = True, model_type: str = 'unigram',
+                 binary: bool = False, use_idf: bool = True,
+                 norm: str | None = 'l2'):
+        self.vocab_size = vocab_size
+        self.ngram_range = ngram_range
+        self.max_features = max_features
+        self.min_df = min_df
+        self.sublinear_tf = sublinear_tf
+        self.model_type = model_type
+        self.binary = binary
+        self.use_idf = use_idf
+        self.norm = norm
+        self._spm_bytes: bytes | None = None
+        self._sp = None
+        self._tfidf = None
+
+    def _processor(self):
+        if self._sp is None:
+            import sentencepiece as spm
+            self._sp = spm.SentencePieceProcessor(model_proto=self._spm_bytes)
+        return self._sp
+
+    def _tokenize(self, text: str) -> list[str]:
+        return self._processor().encode(str(text), out_type=str)
+
+    def fit(self, X, y=None):
+        import io
+        import sentencepiece as spm
+        from sklearn.feature_extraction.text import TfidfVectorizer as _TV
+
+        texts = [str(x) for x in X]
+        model_buf = io.BytesIO()
+        # character_coverage=1.0: the German alphabet incl. umlauts is small
+        # enough to cover fully; dropping rare characters would destroy exactly
+        # the dialect spellings that carry signal.
+        spm.SentencePieceTrainer.train(
+            sentence_iterator=iter(texts),
+            model_writer=model_buf,
+            vocab_size=self.vocab_size,
+            model_type=self.model_type,
+            character_coverage=1.0,
+            bos_id=-1, eos_id=-1,
+            minloglevel=2,
+        )
+        self._spm_bytes = model_buf.getvalue()
+        self._sp = None
+
+        # tokenizer= (not analyzer=) so sklearn still assembles the n-grams
+        # and applies min_df/max_features on top of the subword units.
+        self._tfidf = _TV(
+            tokenizer=self._tokenize,
+            analyzer='word',
+            token_pattern=None,
+            lowercase=False,
+            ngram_range=self.ngram_range,
+            max_features=self.max_features,
+            min_df=self.min_df,
+            sublinear_tf=self.sublinear_tf,
+            binary=self.binary,
+            use_idf=self.use_idf,
+            norm=self.norm,
+        )
+        self._tfidf.fit(texts)
+        return self
+
+    def transform(self, X):
+        return self._tfidf.transform([str(x) for x in X])
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_sp"] = None
+        return state
+
+
 try:
     import xgboost as xgb
     HAS_XGBOOST = True
@@ -261,6 +353,12 @@ class SachgruppenClassifier:
                  use_word_features: bool = True,
                  lemma_max_features: int | None = None,
                  bedeutung_max_features: int | None = None,
+                 tfidf_binary: bool = False,
+                 tfidf_use_idf: bool = True,
+                 tfidf_norm: str | None = 'l2',
+                 use_subword: bool = False,
+                 subword_vocab_lemma: int = 8000,
+                 subword_vocab_bedeutung: int = 16000,
                  use_svd: bool = False,
                  svd_components: int = 500,
                  use_spacy: bool = False,
@@ -290,6 +388,13 @@ class SachgruppenClassifier:
             bedeutung_max_features: TF-IDF vocabulary cap for bedeutung; None = analyzer
                 default (char_wb: 20000, word: 10000)
             use_word_features: Extra word-level branch for bedeutung (char_wb mode only)
+            tfidf_binary: Clip term counts to 0/1 before weighting. Near-inert here —
+                93–99 % of the cells already have count 1 (texts are short: lemma
+                median 9 chars, bedeutung median 3 words).
+            tfidf_use_idf: Apply the inverse-document-frequency weighting. False leaves
+                plain (sublinear) term frequencies.
+            tfidf_norm: Row normalization: 'l2' (default), 'l1', or None. With counts
+                effectively binary, this is what makes short and long glosses comparable.
             use_svd: Enable TruncatedSVD (LSA) after vectorization (XGBoost: right after
                 vectorizer; NN: after the MaxAbsScaler, to compress the ~46k-dim sparse
                 input before the MLP)
@@ -324,6 +429,12 @@ class SachgruppenClassifier:
         self.use_word_features = use_word_features
         self.lemma_max_features = lemma_max_features
         self.bedeutung_max_features = bedeutung_max_features
+        self.tfidf_binary = tfidf_binary
+        self.tfidf_use_idf = tfidf_use_idf
+        self.tfidf_norm = tfidf_norm
+        self.use_subword = use_subword
+        self.subword_vocab_lemma = subword_vocab_lemma
+        self.subword_vocab_bedeutung = subword_vocab_bedeutung
         self.use_svd = use_svd
         self.svd_components = svd_components
         self.use_spacy = use_spacy
@@ -351,6 +462,13 @@ class SachgruppenClassifier:
         # Separate vectorizers for lemma and bedeutung.
         # max_features: None falls back to the analyzer-specific default, so unset
         # values reproduce the historical configuration exactly.
+        # Weighting (binary/idf/norm) is shared by every TF-IDF branch below;
+        # the defaults are sklearn's, i.e. the historical configuration.
+        weight = dict(
+            binary=self.tfidf_binary,
+            use_idf=self.tfidf_use_idf,
+            norm=self.tfidf_norm,
+        )
         if self.analyzer == 'word':
             lemma_mf = self.lemma_max_features or 5000
             bedeutung_mf = self.bedeutung_max_features or 10000
@@ -360,6 +478,7 @@ class SachgruppenClassifier:
                 analyzer='word',
                 min_df=2,
                 sublinear_tf=True,
+                **weight,
             )
             lemma_vectorizer = TfidfVectorizer(max_features=lemma_mf, **common_word_params)
             bedeutung_vectorizer = TfidfVectorizer(max_features=bedeutung_mf, **common_word_params)
@@ -375,6 +494,7 @@ class SachgruppenClassifier:
                 max_features=lemma_mf,
                 min_df=2,
                 sublinear_tf=True,
+                **weight,
             )
             bedeutung_vectorizer = TfidfVectorizer(
                 ngram_range=(2, 4),
@@ -382,7 +502,30 @@ class SachgruppenClassifier:
                 max_features=bedeutung_mf,
                 min_df=2,
                 sublinear_tf=True,
+                **weight,
             )
+            if self.use_subword:
+                # Learned subword units replace the fixed character windows for
+                # lemma and bedeutung. The word-level bedeutung branch below is
+                # deliberately kept — it is the most valuable block of the
+                # pipeline (dropping it costs 0.92 pp), so this stays a clean
+                # A/B of char windows vs. subwords, not two changes at once.
+                lemma_vectorizer = SubwordTfidfVectorizer(
+                    vocab_size=self.subword_vocab_lemma,
+                    ngram_range=(1, 2),
+                    max_features=lemma_mf,
+                    min_df=2,
+                    sublinear_tf=True,
+                    **weight,
+                )
+                bedeutung_vectorizer = SubwordTfidfVectorizer(
+                    vocab_size=self.subword_vocab_bedeutung,
+                    ngram_range=(1, 2),
+                    max_features=bedeutung_mf,
+                    min_df=2,
+                    sublinear_tf=True,
+                    **weight,
+                )
 
         if self.use_lemma:
             transformers = [
@@ -397,6 +540,7 @@ class SachgruppenClassifier:
                     max_features=15000,
                     min_df=2,
                     sublinear_tf=True,
+                    **weight,
                 )
                 transformers.append(('bedeutung_word', bedeutung_word_vectorizer, 'bedeutung'))
         else:
@@ -1084,6 +1228,12 @@ class SachgruppenClassifier:
                 'use_word_features': self.use_word_features,
                 'lemma_max_features': self.lemma_max_features,
                 'bedeutung_max_features': self.bedeutung_max_features,
+                'tfidf_binary': self.tfidf_binary,
+                'tfidf_use_idf': self.tfidf_use_idf,
+                'tfidf_norm': self.tfidf_norm,
+                'use_subword': self.use_subword,
+                'subword_vocab_lemma': self.subword_vocab_lemma,
+                'subword_vocab_bedeutung': self.subword_vocab_bedeutung,
                 'use_spacy': self.use_spacy,
                 'use_dornseiff': self.use_dornseiff,
                 'use_svd': self.use_svd,
@@ -1130,6 +1280,12 @@ class SachgruppenClassifier:
             use_word_features=data.get('use_word_features', False),  # False for backward compatibility
             lemma_max_features=data.get('lemma_max_features'),
             bedeutung_max_features=data.get('bedeutung_max_features'),
+            tfidf_binary=data.get('tfidf_binary', False),
+            tfidf_use_idf=data.get('tfidf_use_idf', True),
+            tfidf_norm=data.get('tfidf_norm', 'l2'),
+            use_subword=data.get('use_subword', False),
+            subword_vocab_lemma=data.get('subword_vocab_lemma', 8000),
+            subword_vocab_bedeutung=data.get('subword_vocab_bedeutung', 16000),
             use_spacy=data.get('use_spacy', False),
             use_dornseiff=data.get('use_dornseiff', False),
             use_svd=data.get('use_svd', False),
@@ -1160,6 +1316,9 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        analyzer='char_wb', word_ngram_max=1,
                        use_word_features=True,
                        lemma_max_features=None, bedeutung_max_features=None,
+                       tfidf_binary=False, tfidf_use_idf=True, tfidf_norm='l2',
+                       use_subword=False, subword_vocab_lemma=8000,
+                       subword_vocab_bedeutung=16000,
                        use_svd=False, svd_components=500,
                        use_spacy=False, use_dornseiff=False,
                        svm_c=1.0, xgb_n_estimators=300, xgb_max_depth=6,
@@ -1324,6 +1483,12 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         use_word_features=use_word_features,
         lemma_max_features=lemma_max_features,
         bedeutung_max_features=bedeutung_max_features,
+        tfidf_binary=tfidf_binary,
+        tfidf_use_idf=tfidf_use_idf,
+        tfidf_norm=tfidf_norm,
+        use_subword=use_subword,
+        subword_vocab_lemma=subword_vocab_lemma,
+        subword_vocab_bedeutung=subword_vocab_bedeutung,
         use_svd=use_svd,
         svd_components=svd_components,
         use_spacy=use_spacy,
@@ -1548,6 +1713,22 @@ if __name__ == '__main__':
     parser.add_argument('--no-word-features', action='store_true',
                         help='Drop the extra word-level branch for bedeutung '
                              '(15000 very sparse columns); char_wb mode only')
+    parser.add_argument('--tfidf-binary', action='store_true',
+                        help='Clip term counts to 0/1 before weighting (applies to every '
+                             'TF-IDF branch). Near-inert: 93-99%% of cells are already 1')
+    parser.add_argument('--tfidf-no-idf', action='store_true',
+                        help='Disable the inverse-document-frequency weighting')
+    parser.add_argument('--subword', action='store_true',
+                        help='Replace the char_wb branches for lemma/bedeutung with '
+                             'learned SentencePiece subword units (needs the optional '
+                             'sentencepiece package); the word branch is kept')
+    parser.add_argument('--subword-vocab-lemma', type=int, default=8000,
+                        help='SentencePiece vocabulary size for lemma (default: 8000)')
+    parser.add_argument('--subword-vocab-bedeutung', type=int, default=16000,
+                        help='SentencePiece vocabulary size for bedeutung (default: 16000)')
+    parser.add_argument('--tfidf-norm', type=str, default='l2',
+                        choices=['l2', 'l1', 'none'],
+                        help='Row normalization for every TF-IDF branch (default: l2)')
     parser.add_argument('--min-length', type=int, nargs='+', default=[1],
                         metavar='N',
                         help='Minimum word length(s): 1 2 3')
@@ -1729,6 +1910,12 @@ if __name__ == '__main__':
                     lemma_max_features=args.lemma_max_features,
                     bedeutung_max_features=args.bedeutung_max_features,
                     use_word_features=not args.no_word_features,
+                    tfidf_binary=args.tfidf_binary,
+                    tfidf_use_idf=not args.tfidf_no_idf,
+                    tfidf_norm=None if args.tfidf_norm == 'none' else args.tfidf_norm,
+                    use_subword=args.subword,
+                    subword_vocab_lemma=args.subword_vocab_lemma,
+                    subword_vocab_bedeutung=args.subword_vocab_bedeutung,
                     use_spacy=args.use_spacy,
                     use_dornseiff=args.use_dornseiff,
                     svm_c=args.svm_c,
@@ -1776,6 +1963,12 @@ if __name__ == '__main__':
                 "lemma_max_features": args.lemma_max_features,
                 "bedeutung_max_features": args.bedeutung_max_features,
                 "use_word_features": not args.no_word_features,
+                "tfidf_binary": args.tfidf_binary,
+                "tfidf_use_idf": not args.tfidf_no_idf,
+                "tfidf_norm": None if args.tfidf_norm == 'none' else args.tfidf_norm,
+                "use_subword": args.subword,
+                "subword_vocab_lemma": args.subword_vocab_lemma if args.subword else None,
+                "subword_vocab_bedeutung": args.subword_vocab_bedeutung if args.subword else None,
                 "tune": args.tune,
                 "tune_n_iter": args.tune_n_iter if args.tune else None,
                 "tune_cv": tune_cv if args.tune else None,
