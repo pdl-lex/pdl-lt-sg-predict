@@ -259,6 +259,8 @@ class SachgruppenClassifier:
                  analyzer: str = 'char_wb',
                  word_ngram_max: int = 1,
                  use_word_features: bool = True,
+                 lemma_max_features: int | None = None,
+                 bedeutung_max_features: int | None = None,
                  use_svd: bool = False,
                  svd_components: int = 500,
                  use_spacy: bool = False,
@@ -283,6 +285,10 @@ class SachgruppenClassifier:
             min_word_length: Minimum word length (1–5); shorter words removed before TF-IDF
             analyzer: TF-IDF analyzer: 'char_wb' (character n-grams) or 'word' (word-level)
             word_ngram_max: Max n for word analyzer (1=(1,1), 2=(1,2)); ignored for char_wb
+            lemma_max_features: TF-IDF vocabulary cap for lemma; None = analyzer default
+                (char_wb: 10000, word: 5000)
+            bedeutung_max_features: TF-IDF vocabulary cap for bedeutung; None = analyzer
+                default (char_wb: 20000, word: 10000)
             use_word_features: Extra word-level branch for bedeutung (char_wb mode only)
             use_svd: Enable TruncatedSVD (LSA) after vectorization (XGBoost: right after
                 vectorizer; NN: after the MaxAbsScaler, to compress the ~46k-dim sparse
@@ -316,6 +322,8 @@ class SachgruppenClassifier:
         self.analyzer = analyzer
         self.word_ngram_max = word_ngram_max
         self.use_word_features = use_word_features
+        self.lemma_max_features = lemma_max_features
+        self.bedeutung_max_features = bedeutung_max_features
         self.use_svd = use_svd
         self.svd_components = svd_components
         self.use_spacy = use_spacy
@@ -340,8 +348,12 @@ class SachgruppenClassifier:
     def create_pipeline(self):
         """Build the ML pipeline."""
 
-        # Separate vectorizers for lemma and bedeutung
+        # Separate vectorizers for lemma and bedeutung.
+        # max_features: None falls back to the analyzer-specific default, so unset
+        # values reproduce the historical configuration exactly.
         if self.analyzer == 'word':
+            lemma_mf = self.lemma_max_features or 5000
+            bedeutung_mf = self.bedeutung_max_features or 10000
             # Word-level: configurable n-gram size
             common_word_params = dict(
                 ngram_range=(1, self.word_ngram_max),
@@ -349,23 +361,25 @@ class SachgruppenClassifier:
                 min_df=2,
                 sublinear_tf=True,
             )
-            lemma_vectorizer = TfidfVectorizer(max_features=5000, **common_word_params)
-            bedeutung_vectorizer = TfidfVectorizer(max_features=10000, **common_word_params)
+            lemma_vectorizer = TfidfVectorizer(max_features=lemma_mf, **common_word_params)
+            bedeutung_vectorizer = TfidfVectorizer(max_features=bedeutung_mf, **common_word_params)
         else:
+            lemma_mf = self.lemma_max_features or 10000
+            bedeutung_mf = self.bedeutung_max_features or 20000
             # Character n-grams (default)
             # Umlauts (ä, ö, ü) are intentionally NOT normalized (no strip_accents)
             # because they carry morphological information in German.
             lemma_vectorizer = TfidfVectorizer(
                 ngram_range=(2, 5),
                 analyzer='char_wb',
-                max_features=10000,
+                max_features=lemma_mf,
                 min_df=2,
                 sublinear_tf=True,
             )
             bedeutung_vectorizer = TfidfVectorizer(
                 ngram_range=(2, 4),
                 analyzer='char_wb',
-                max_features=20000,
+                max_features=bedeutung_mf,
                 min_df=2,
                 sublinear_tf=True,
             )
@@ -1068,6 +1082,8 @@ class SachgruppenClassifier:
                 'analyzer': self.analyzer,
                 'word_ngram_max': self.word_ngram_max,
                 'use_word_features': self.use_word_features,
+                'lemma_max_features': self.lemma_max_features,
+                'bedeutung_max_features': self.bedeutung_max_features,
                 'use_spacy': self.use_spacy,
                 'use_dornseiff': self.use_dornseiff,
                 'use_svd': self.use_svd,
@@ -1112,6 +1128,8 @@ class SachgruppenClassifier:
             analyzer=data.get('analyzer', 'char_wb'),
             word_ngram_max=data.get('word_ngram_max', 1),
             use_word_features=data.get('use_word_features', False),  # False for backward compatibility
+            lemma_max_features=data.get('lemma_max_features'),
+            bedeutung_max_features=data.get('bedeutung_max_features'),
             use_spacy=data.get('use_spacy', False),
             use_dornseiff=data.get('use_dornseiff', False),
             use_svd=data.get('use_svd', False),
@@ -1140,7 +1158,9 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        use_lemma=True,
                        remove_stopwords=False, min_word_length=1,
                        analyzer='char_wb', word_ngram_max=1,
-                       use_word_features=True, use_svd=False, svd_components=500,
+                       use_word_features=True,
+                       lemma_max_features=None, bedeutung_max_features=None,
+                       use_svd=False, svd_components=500,
                        use_spacy=False, use_dornseiff=False,
                        svm_c=1.0, xgb_n_estimators=300, xgb_max_depth=6,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
@@ -1302,6 +1322,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         analyzer=analyzer,
         word_ngram_max=word_ngram_max,
         use_word_features=use_word_features,
+        lemma_max_features=lemma_max_features,
+        bedeutung_max_features=bedeutung_max_features,
         use_svd=use_svd,
         svd_components=svd_components,
         use_spacy=use_spacy,
@@ -1517,6 +1539,15 @@ if __name__ == '__main__':
                         help='Vectorizer mode: char_wb word')
     parser.add_argument('--word-ngram-max', type=int, default=1,
                         help='Maximum n-gram size for analyzer=word')
+    parser.add_argument('--lemma-max-features', type=int, default=None,
+                        help='TF-IDF vocabulary cap for lemma '
+                             '(default: 10000 char_wb / 5000 word)')
+    parser.add_argument('--bedeutung-max-features', type=int, default=None,
+                        help='TF-IDF vocabulary cap for bedeutung '
+                             '(default: 20000 char_wb / 10000 word)')
+    parser.add_argument('--no-word-features', action='store_true',
+                        help='Drop the extra word-level branch for bedeutung '
+                             '(15000 very sparse columns); char_wb mode only')
     parser.add_argument('--min-length', type=int, nargs='+', default=[1],
                         metavar='N',
                         help='Minimum word length(s): 1 2 3')
@@ -1695,6 +1726,9 @@ if __name__ == '__main__':
                     min_word_length=min_len,
                     analyzer=analyzer,
                     word_ngram_max=args.word_ngram_max,
+                    lemma_max_features=args.lemma_max_features,
+                    bedeutung_max_features=args.bedeutung_max_features,
+                    use_word_features=not args.no_word_features,
                     use_spacy=args.use_spacy,
                     use_dornseiff=args.use_dornseiff,
                     svm_c=args.svm_c,
@@ -1739,6 +1773,9 @@ if __name__ == '__main__':
                 "min_word_length": min_len,
                 "analyzer": analyzer,
                 "word_ngram_max": args.word_ngram_max,
+                "lemma_max_features": args.lemma_max_features,
+                "bedeutung_max_features": args.bedeutung_max_features,
+                "use_word_features": not args.no_word_features,
                 "tune": args.tune,
                 "tune_n_iter": args.tune_n_iter if args.tune else None,
                 "tune_cv": tune_cv if args.tune else None,
