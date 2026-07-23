@@ -47,3 +47,75 @@ Ergebnis:
   besser als nn_char_wb_ml1_sw0_20260709_230251.
 
 ==============================================================================
+==============================================================================
+Statistischer Signifikanztest (McNemar) -- 2026-07-23 11:39
+==============================================================================
+
+Vergleich:
+  Modell A (Baseline):   tfidf_baseline
+                          Accuracy: 0.8348
+  Modell B (Vergleich):  tfidf+bed_spacy
+                          Accuracy: 0.8406
+  Testset:               data/woerterbuch_daten_124217.csv, Split random_state=42/test_size=0.2/stratifiziert (via scripts/benchmark_spacy.py --variants tfidf+bed_spacy --solver linearsvc) (24839 Beispiele)
+  Accuracy-Differenz:    +0.58 Prozentpunkte
+
+Was misst McNemar?
+  Der Test prueft, ob zwei Modelle auf DENSELBEN Testbeispielen unter-
+  schiedlich gut abschneiden. Faelle, in denen beide Modelle einig sind
+  (beide richtig oder beide falsch), tragen nichts zur Aussage bei -- nur
+  die Faelle, in denen sie sich widersprechen ("diskordant"), zaehlen.
+  Unter der Nullhypothese (kein echter Unterschied) sollten sich diese
+  Faelle etwa 50/50 auf "nur A richtig" und "nur B richtig" verteilen.
+
+2x2-Kontingenztafel:
+  a =  20587  (beide richtig)
+  b =    148  (nur tfidf_baseline richtig)
+  c =    292  (nur tfidf+bed_spacy richtig)
+  d =   3812  (beide falsch)
+  n = a+b+c+d = 24839  |  diskordant = b+c = 440
+
+Ergebnis:
+  p-Wert = 6.056e-12
+  *** SIGNIFIKANT (p < 0.05) ***
+  Die Aufteilung 148 vs. 292 weicht so stark von 50/50 ab, dass die
+  gemessene Differenz von +0.58 PP nicht durch Zufall/Testset-
+  Rauschen erklaerbar ist -- tfidf+bed_spacy ist mit hoher Sicherheit echt
+  besser als tfidf_baseline.
+
+==============================================================================
+==============================================================================
+Statistischer Signifikanztest (McNemar) -- 2026-07-23 13:51
+==============================================================================
+
+Vergleich:
+  Modell A (Baseline):   tfidf_baseline
+                          Accuracy: 0.8348
+  Modell B (Vergleich):  tfidf+dornseiff
+                          Accuracy: 0.8377
+  Testset:               data/woerterbuch_daten_124217.csv, Split random_state=42/test_size=0.2/stratifiziert (via scripts/benchmark_dornseiff.py --solver linearsvc) (24839 Beispiele)
+  Accuracy-Differenz:    +0.29 Prozentpunkte
+
+Was misst McNemar?
+  Der Test prueft, ob zwei Modelle auf DENSELBEN Testbeispielen unter-
+  schiedlich gut abschneiden. Faelle, in denen beide Modelle einig sind
+  (beide richtig oder beide falsch), tragen nichts zur Aussage bei -- nur
+  die Faelle, in denen sie sich widersprechen ("diskordant"), zaehlen.
+  Unter der Nullhypothese (kein echter Unterschied) sollten sich diese
+  Faelle etwa 50/50 auf "nur A richtig" und "nur B richtig" verteilen.
+
+2x2-Kontingenztafel:
+  a =  20559  (beide richtig)
+  b =    176  (nur tfidf_baseline richtig)
+  c =    248  (nur tfidf+dornseiff richtig)
+  d =   3856  (beide falsch)
+  n = a+b+c+d = 24839  |  diskordant = b+c = 424
+
+Ergebnis:
+  p-Wert = 0.0005492
+  *** SIGNIFIKANT (p < 0.05) ***
+  Die Aufteilung 176 vs. 248 weicht so stark von 50/50 ab, dass die
+  gemessene Differenz von +0.29 PP nicht durch Zufall/Testset-
+  Rauschen erklaerbar ist -- tfidf+dornseiff ist mit hoher Sicherheit echt
+  besser als tfidf_baseline.
+
+==============================================================================

@@ -340,6 +340,24 @@ except ImportError:
     print("XGBoost not installed. Skipping XGBoost model.")
 
 
+def _wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson-Score-Konfidenzintervall (z=1.96 ~ 95%) fuer einen Anteil aus k
+    Erfolgen bei n Versuchen -- geschlossene Formel statt Bootstrap, daher robust
+    auch bei kleinem n oder Anteilen nahe 0/1 (siehe scripts/significance.py fuer
+    den Hintergrund, warum der alte Bootstrap-CI dort entfernt wurde)."""
+    if n == 0:
+        return (0.0, 0.0)
+    phat = k / n
+    denom = 1 + z * z / n
+    center = (phat + z * z / (2 * n)) / denom
+    margin = z * ((phat * (1 - phat) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return (max(0.0, center - margin), min(1.0, center + margin))
+
+
+def _fmt_ci(ci: tuple[float, float] | None) -> str:
+    return f"[{ci[0]:.4f}, {ci[1]:.4f}]" if ci else ""
+
+
 class SachgruppenClassifier:
     """
     Main class for Sachgruppen classification.
@@ -936,11 +954,13 @@ class SachgruppenClassifier:
         classes = np.asarray(classes).astype(str)
 
         scores = None
+        has_proba = False
         # Plain LinearSVC has no predict_proba (hasattr is False → decision_function
         # below); a calibrated SVM does, and then the probabilities are what counts.
         if hasattr(self.pipeline, 'predict_proba'):
             try:
                 scores = np.asarray(self.pipeline.predict_proba(X_test), dtype=float)
+                has_proba = True
             except Exception:
                 scores = None
         if scores is None:
@@ -952,9 +972,15 @@ class SachgruppenClassifier:
         ranked = classes[order]
         pred1 = ranked[:, 0]
 
-        metrics = {}
+        n_total = len(y_true)
+        metrics = {'has_proba': has_proba}
         for k in ks:
-            metrics[f'top{k}'] = float((ranked[:, :k] == y_true[:, None]).any(axis=1).mean())
+            correct_k = int((ranked[:, :k] == y_true[:, None]).any(axis=1).sum())
+            metrics[f'top{k}'] = correct_k / n_total
+            # Wilson-Score-CI: top{k} ist ein Anteil (wahres Label unter Top-k oder
+            # nicht), die CI zeigt, wie stark dieser Wert bei einem anderen Testsample
+            # gleicher Groesse schwanken koennte -- unabhaengig vom Konfidenz-Score oben.
+            metrics[f'top{k}_ci'] = _wilson_ci(correct_k, n_total)
 
         grp_pred = np.array([s[:group_len] for s in pred1])
         grp_true = np.array([s[:group_len] for s in y_true])
@@ -973,6 +999,15 @@ class SachgruppenClassifier:
             f'{int(c * 100)}%': float(correct_sorted[:max(1, int(n * c))].mean())
             for c in (0.5, 0.7, 0.9)
         }
+
+        # Genuine confidence (distinct from top-k accuracy above): mean probability
+        # mass the model itself assigns to its top-k suggestions. Only meaningful
+        # with calibrated probabilities — raw SVM decision_function margins are
+        # unbounded and don't sum to 1, so we skip this without predict_proba.
+        if has_proba:
+            for k in ks:
+                metrics[f'top{k}_conf'] = float(sorted_scores[:, :k].sum(axis=1).mean())
+
         return metrics
 
     @staticmethod
@@ -984,10 +1019,25 @@ class SachgruppenClassifier:
             "=" * 60,
             "TOP-k / HIERARCHIE / KONFIDENZ",
             "=" * 60,
-            f"Top-1: {m['top1']:.4f}   Top-3: {m['top3']:.4f}   Top-5: {m['top5']:.4f}",
+            f"Top-1: {m['top1']:.4f} {_fmt_ci(m.get('top1_ci'))}   "
+            f"Top-3: {m['top3']:.4f} {_fmt_ci(m.get('top3_ci'))}   "
+            f"Top-5: {m['top5']:.4f} {_fmt_ci(m.get('top5_ci'))}"
+            "   (Accuracy: wahres Label unter den Top-k Vorschlaegen; "
+            "[ ] = 95%-Wilson-Konfidenzintervall)",
             f"Richtige {m['group_len']}-stellige Gruppe (Top-1): {m['group_acc']:.4f}",
-            "Konfidenz/Abdeckung (Top-1 automatisch akzeptieren):",
         ]
+        if m.get('has_proba'):
+            lines.append(
+                f"Konfidenz: Top-1: {m['top1_conf']:.4f}   Top-3: {m['top3_conf']:.4f}   "
+                f"Top-5: {m['top5_conf']:.4f}"
+                "   (mittlere Wahrscheinlichkeitsmasse auf den Top-k Vorschlaegen)"
+            )
+        else:
+            lines.append(
+                "Konfidenz: nicht verfuegbar (Modell liefert keine kalibrierten "
+                "Wahrscheinlichkeiten, z. B. unkalibrierte SVM ohne --calibrate)"
+            )
+        lines.append("Konfidenz/Abdeckung (Top-1 automatisch akzeptieren):")
         for cov, acc in m['coverage'].items():
             lines.append(f"  {cov:>4} Abdeckung  ->  {acc:.4f} Accuracy")
         return "\n".join(lines)
