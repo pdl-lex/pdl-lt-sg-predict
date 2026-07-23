@@ -918,13 +918,14 @@ class SachgruppenClassifier:
             y_pred = self.pipeline.predict(X_test)
 
         accuracy = accuracy_score(y_test, y_pred)
-        report_str = classification_report(y_test, y_pred, zero_division=0)
+        table_str = classification_report(y_test, y_pred, zero_division=0)
 
         # Top-k, hierarchical and confidence/coverage metrics.
         # Computed on the (possibly filtered) X_test/y_test so they align with y_pred.
+        # Nur gespeichert (self.eval_metrics_), nicht in table_str eingebaut -- die
+        # Reihenfolge im finalen Report (Top-k/CV vor der Tabelle) setzt train_and_evaluate().
         try:
             self.eval_metrics_ = self._extended_metrics(X_test, y_test)
-            report_str = report_str + "\n\n" + self._format_extended_metrics(self.eval_metrics_)
         except Exception as e:
             print(f"Warning: extended metrics skipped ({e})")
             self.eval_metrics_ = {}
@@ -935,9 +936,12 @@ class SachgruppenClassifier:
             print("="*60)
             print(f"Accuracy: {accuracy:.4f}")
             print("\nClassification report:")
-            print(report_str)
+            print(table_str)
+            extended_str = self._format_extended_metrics(self.eval_metrics_)
+            if extended_str:
+                print("\n" + extended_str)
 
-        return accuracy, y_pred, report_str
+        return accuracy, y_pred, table_str
 
     def _extended_metrics(self, X_test, y_test, ks=(1, 3, 5), group_len=2):
         """Top-k accuracy, hierarchical (group) accuracy and a confidence/coverage curve.
@@ -973,7 +977,7 @@ class SachgruppenClassifier:
         pred1 = ranked[:, 0]
 
         n_total = len(y_true)
-        metrics = {'has_proba': has_proba}
+        metrics = {'has_proba': has_proba, 'num_classes': int(len(classes))}
         for k in ks:
             correct_k = int((ranked[:, :k] == y_true[:, None]).any(axis=1).sum())
             metrics[f'top{k}'] = correct_k / n_total
@@ -1017,29 +1021,37 @@ class SachgruppenClassifier:
             return ""
         lines = [
             "=" * 60,
-            "TOP-k / HIERARCHIE / KONFIDENZ",
+            "TOP-k-ACCURACY / KONFIDENZ / HIERARCHIE / ABDECKUNG",
             "=" * 60,
+            "Accuracy",
             f"Top-1: {m['top1']:.4f} {_fmt_ci(m.get('top1_ci'))}   "
             f"Top-3: {m['top3']:.4f} {_fmt_ci(m.get('top3_ci'))}   "
-            f"Top-5: {m['top5']:.4f} {_fmt_ci(m.get('top5_ci'))}"
-            "   (Accuracy: wahres Label unter den Top-k Vorschlaegen; "
-            "[ ] = 95%-Wilson-Konfidenzintervall)",
-            f"Richtige {m['group_len']}-stellige Gruppe (Top-1): {m['group_acc']:.4f}",
+            f"Top-5: {m['top5']:.4f} {_fmt_ci(m.get('top5_ci'))}",
+            "Definition: wahres Label unter den Top-k Vorschlaegen; "
+            "[ ] = 95%-Wilson-Konfidenzintervall",
+            "",
+            "Konfidenz",
         ]
         if m.get('has_proba'):
             lines.append(
-                f"Konfidenz: Top-1: {m['top1_conf']:.4f}   Top-3: {m['top3_conf']:.4f}   "
+                f"Top-1: {m['top1_conf']:.4f}   Top-3: {m['top3_conf']:.4f}   "
                 f"Top-5: {m['top5_conf']:.4f}"
-                "   (mittlere Wahrscheinlichkeitsmasse auf den Top-k Vorschlaegen)"
             )
+            lines.append("Definition: mittlere Wahrscheinlichkeitsmasse auf den Top-k Vorschlaegen")
         else:
             lines.append(
-                "Konfidenz: nicht verfuegbar (Modell liefert keine kalibrierten "
-                "Wahrscheinlichkeiten, z. B. unkalibrierte SVM ohne --calibrate)"
+                "nicht verfuegbar (Modell liefert keine kalibrierten Wahrscheinlichkeiten, "
+                "z. B. unkalibrierte SVM ohne --calibrate)"
             )
-        lines.append("Konfidenz/Abdeckung (Top-1 automatisch akzeptieren):")
+        lines += [
+            "",
+            f"Richtige {m['group_len']}-stellige Gruppe (Top-1): {m['group_acc']:.4f}",
+            "",
+            "Abdeckung",
+        ]
         for cov, acc in m['coverage'].items():
             lines.append(f"  {cov:>4} Abdeckung  ->  {acc:.4f} Accuracy")
+        lines.append("Definition: Accuracy bei Auswahl von XX % mit der hoechsten Konfidenz")
         return "\n".join(lines)
     
     def cross_validate(self, X, y, cv=5, scoring='accuracy', mode='stratified',
@@ -1560,16 +1572,24 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
 
     # Evaluate
     _cb(85, "Evaluiere Modell…")
-    accuracy, y_pred, report_str = clf.evaluate(X_test, y_test)
+    accuracy, y_pred, table_str = clf.evaluate(X_test, y_test)
 
     # Optional: split-independent estimate via stratified k-fold CV on all data.
     cv_results = None
+    cv_str = ""
     if cross_validate:
         _cb(88, f"Cross-Validierung ({cv_folds} Folds, {cv_mode})…")
         cv_groups = X['bedeutung'] if cv_mode == 'group' else None
         cv_results = clf.cross_validate(X, y, cv=cv_folds, scoring='accuracy',
                                         mode=cv_mode, groups=cv_groups)
-        report_str = report_str + "\n\n" + _format_cv_results(cv_results)
+        cv_str = _format_cv_results(cv_results)
+
+    # Reihenfolge im Report: Top-k/Konfidenz/Hierarchie/Abdeckung, dann Cross-
+    # Validierung (falls gelaufen), erst dann die vollstaendige klassenweise Tabelle
+    # -- die Kurzuebersicht soll vor der langen Tabelle stehen, nicht dahinter.
+    extended_str = clf._format_extended_metrics(getattr(clf, 'eval_metrics_', {}))
+    labeled_table = f"{'=' * 60}\nKOMPLETTE AUSWERTUNG\n{'=' * 60}\n\n{table_str}"
+    report_str = "\n\n".join(p for p in (extended_str, cv_str, labeled_table) if p)
 
     # Save
     _cb(95, "Speichere Modell…")

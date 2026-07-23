@@ -85,7 +85,12 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--models", nargs="+", default=MODEL_TYPES,
-                    help=f"Zu testende Modelltypen (Default: {' '.join(MODEL_TYPES)})")
+                    help=f"Zu testende Modelltypen (Default: {' '.join(MODEL_TYPES)}); "
+                         "waehlt pro Typ automatisch das neueste .pkl (nach mtime).")
+    ap.add_argument("--files", nargs="+",
+                    help="Exakte .pkl-Dateinamen in models/ statt automatischer Typ-Auswahl "
+                         "(z. B. --files svm_brave_lemon.pkl nn_bright_cherry.pkl); "
+                         "ueberschreibt --models.")
     ap.add_argument("--repeats", type=int, default=100,
                     help="Messwiederholungen pro Szenario (Default: 100)")
     ap.add_argument("--warmup", type=int, default=3,
@@ -100,14 +105,18 @@ def main() -> None:
           f"{args.warmup} Warmup)")
     print("=" * 78)
 
+    if args.files:
+        targets = [(name.replace(".pkl", ""), MODELS_DIR / name) for name in args.files]
+    else:
+        targets = [(model_type, newest_model_for(model_type)) for model_type in args.models]
+
     results = []
-    for model_type in args.models:
-        model_path = newest_model_for(model_type)
-        if model_path is None:
-            print(f"\n[{model_type:8}] kein Modell in {MODELS_DIR} gefunden – uebersprungen.")
+    for label, model_path in targets:
+        if model_path is None or not model_path.exists():
+            print(f"\n[{label:8}] kein Modell in {MODELS_DIR} gefunden – uebersprungen.")
             continue
 
-        print(f"\n[{model_type:8}] {model_path.name}")
+        print(f"\n[{label:8}] {model_path.name}")
         clf = SachgruppenClassifier.load(str(model_path))
 
         # Warmup (einmalige Init-Kosten wie spaCy-Laden nicht mitmessen)
@@ -128,7 +137,7 @@ def main() -> None:
         print(f"           Batch-2: {batch_ms['median']:7.2f} ms/Aufruf "
               f"(= {batch_ms['median'] / 2:.2f} ms/Sample)")
 
-        results.append((model_type, single_ms, batch_ms))
+        results.append((label, single_ms, batch_ms))
 
     if not results:
         print("\nKeine Modelle getestet.")
@@ -141,9 +150,9 @@ def main() -> None:
     header = f"{'Modell':10} {'Einzel [ms]':>14} {'Batch-2 [ms]':>14} {'Durchsatz [1/s]':>18}"
     print(header)
     print("-" * len(header))
-    for model_type, single_ms, batch_ms in sorted(results, key=lambda r: r[1]["median"]):
+    for label, single_ms, batch_ms in sorted(results, key=lambda r: r[1]["median"]):
         throughput = 1000.0 / single_ms["median"] if single_ms["median"] > 0 else float("inf")
-        print(f"{model_type:10} {single_ms['median']:14.2f} {batch_ms['median']:14.2f} "
+        print(f"{label:10} {single_ms['median']:14.2f} {batch_ms['median']:14.2f} "
               f"{throughput:18.1f}")
 
 

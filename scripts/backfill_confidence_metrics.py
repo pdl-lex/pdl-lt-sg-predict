@@ -13,6 +13,10 @@ Reproduziert den Test-Split exakt wie beim Training (siehe reproduce_test_split)
 und ruft dieselbe _extended_metrics()/_format_extended_metrics()-Logik auf, die
 auch beim naechsten regulaeren Training verwendet wird.
 
+Ordnet dabei auch die Reihenfolge im Report neu: TOP-k-Block (und Cross-Validierung,
+falls vorhanden) vor die klassenweise Tabelle unter "KOMPLETTE AUSWERTUNG" -- vorher
+stand die lange Tabelle zuerst, die Kurzuebersicht am Ende der Datei.
+
 Beispiel:
     python scripts/backfill_confidence_metrics.py --models-dir models
 """
@@ -28,9 +32,17 @@ from sachgruppen_classifier import SachgruppenClassifier  # noqa: E402
 from scripts.evaluate_topk import reproduce_test_split  # noqa: E402
 
 TOPK_BLOCK_RE = re.compile(
-    r"={60}\nTOP-k / HIERARCHIE / KONFIDENZ\n={60}\n.*?(?=\n\n={60}\n|\Z)",
+    # Header-Titel matcht per Substring "KONFIDENZ" statt exaktem String, damit das
+    # Skript alte Report-Titel (vor Umbenennung) findet und ersetzt, und bei
+    # kuenftigen Titelaenderungen nicht erneut angepasst werden muss.
+    r"={60}\n[^\n]*KONFIDENZ[^\n]*\n={60}\n.*?(?=\n\n={60}\n|\Z)",
     re.DOTALL,
 )
+CV_BLOCK_RE = re.compile(
+    r"={60}\nCROSS-VALIDIERUNG\n={60}\n.*?(?=\n\n={60}\n|\Z)",
+    re.DOTALL,
+)
+TABLE_HEADER_RE = re.compile(r"^={60}\nKOMPLETTE AUSWERTUNG\n={60}\n+", re.DOTALL)
 
 
 def resolve_csv(recorded_path: str, repo_root: Path) -> Path | None:
@@ -97,13 +109,29 @@ def backfill_one(pkl_path: Path, repo_root: Path, dry_run: bool) -> None:
 
     if report_path.exists():
         text = report_path.read_text(encoding="utf-8")
-        new_block = SachgruppenClassifier._format_extended_metrics(new_metrics)
-        if TOPK_BLOCK_RE.search(text):
-            report_path.with_suffix(".txt.bak").write_text(text, encoding="utf-8")
-            text = TOPK_BLOCK_RE.sub(lambda _m: new_block, text, count=1)
-            report_path.write_text(text, encoding="utf-8")
-        else:
+        topk_match = TOPK_BLOCK_RE.search(text)
+        if topk_match is None:
             print(f"  !! TOP-k-Block nicht in {report_path.name} gefunden, Report unveraendert.")
+            return
+        cv_match = CV_BLOCK_RE.search(text)
+
+        # Tabelle = Restlicher Text nach Entfernen von TOPK-/CV-Block (Positionen
+        # koennen je nach Dateistand vor/nach der Tabelle liegen -- absteigend nach
+        # Startposition entfernen, damit sich Indizes nicht verschieben) und eines
+        # evtl. schon vorhandenen "KOMPLETTE AUSWERTUNG"-Headers (idempotent bei
+        # erneutem Lauf nach einer frueheren Migration).
+        remainder = text
+        for m in sorted((x for x in (topk_match, cv_match) if x), key=lambda x: x.start(), reverse=True):
+            remainder = remainder[:m.start()] + remainder[m.end():]
+        table_str = TABLE_HEADER_RE.sub("", remainder.strip("\n")).strip("\n")
+
+        new_topk_block = SachgruppenClassifier._format_extended_metrics(new_metrics)
+        cv_block = cv_match.group(0).strip("\n") if cv_match else ""
+        labeled_table = f"{'=' * 60}\nKOMPLETTE AUSWERTUNG\n{'=' * 60}\n\n{table_str}"
+        new_text = "\n\n".join(p for p in (new_topk_block, cv_block, labeled_table) if p)
+
+        report_path.with_suffix(".txt.bak").write_text(text, encoding="utf-8")
+        report_path.write_text(new_text, encoding="utf-8")
 
 
 def main() -> None:

@@ -119,3 +119,44 @@ Ergebnis:
   besser als tfidf_baseline.
 
 ==============================================================================
+==============================================================================
+Statistischer Signifikanztest (McNemar) -- 2026-07-23 17:36
+==============================================================================
+
+Vergleich:
+  Modell A (Baseline):   svm_brave_lime
+                          Accuracy: 0.8387  (95%-CI: [0.8341, 0.8432])
+  Modell B (Vergleich):  svm_brave_lemon
+                          Accuracy: 0.8445  (95%-CI: [0.8399, 0.8489])
+  Testset:               data/predictions_svm_addons_combined.csv (24839 Beispiele)
+  Accuracy-Differenz:    +0.58 Prozentpunkte
+
+  Hinweis: Die CI je Modell zeigt nur die Stichproben-Unsicherheit der
+  einzelnen Accuracy, sagt aber nichts ueber den paarweisen Unterschied
+  aus (dafuer siehe McNemar-Ergebnis unten) -- ueberlappende CIs schliessen
+  einen signifikanten paarweisen Unterschied NICHT aus.
+
+Was misst McNemar?
+  Der Test prueft, ob zwei Modelle auf DENSELBEN Testbeispielen unter-
+  schiedlich gut abschneiden. Faelle, in denen beide Modelle einig sind
+  (beide richtig oder beide falsch), tragen nichts zur Aussage bei -- nur
+  die Faelle, in denen sie sich widersprechen ("diskordant"), zaehlen.
+  Unter der Nullhypothese (kein echter Unterschied) sollten sich diese
+  Faelle etwa 50/50 auf "nur A richtig" und "nur B richtig" verteilen.
+
+2x2-Kontingenztafel:
+  a =  20596  (beide richtig)
+  b =    237  (nur svm_brave_lime richtig)
+  c =    380  (nur svm_brave_lemon richtig)
+  d =   3626  (beide falsch)
+  n = a+b+c+d = 24839  |  diskordant = b+c = 617
+
+Ergebnis:
+  p-Wert = 9.376e-09
+  *** SIGNIFIKANT (p < 0.05) ***
+  Die Aufteilung 237 vs. 380 weicht so stark von 50/50 ab, dass die
+  gemessene Differenz von +0.58 PP nicht durch Zufall/Testset-
+  Rauschen erklaerbar ist -- svm_brave_lemon ist mit hoher Sicherheit echt
+  besser als svm_brave_lime.
+
+==============================================================================

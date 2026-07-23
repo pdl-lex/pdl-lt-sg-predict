@@ -1,0 +1,17 @@
+Kontingenz-Tabellen für McNemar-Test
+Statistische Signifikanz der Precision-Anstiege bei Nutzung semantischen Anreicherung
+
+spaCy
+n=24.839
+a=20.587, b=148, c=292, d=3.812, p=6,056e-12
+
+Dornseiff
+n=24.839
+a=20.559, b=176, c=248, d=3.856, p=5,5e-4
+
+spaCy + Dornseiff
+= Vergleich svm_brave_lime vs. svm_brave_lemon
+n=24.839
+a=20.596, b=237, c=380, d=3.626, p=9,376e-9
+
+

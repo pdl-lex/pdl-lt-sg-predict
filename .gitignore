@@ -51,3 +51,4 @@ test_output.csv
 start.txt
 
 analysis/
+*.bak

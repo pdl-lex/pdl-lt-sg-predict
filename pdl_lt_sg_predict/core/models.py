@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -197,59 +196,24 @@ def _config_header(meta: dict) -> str:
     return "\n".join(lines)
 
 
-_SECTION_RULE = "=" * 60
-_TOPK_MARKER = "TOP-k / HIERARCHIE / KONFIDENZ"
-_CV_MARKER = "CROSS-VALIDIERUNG"
-_SECTION_HEADER_RE = re.compile(rf"{re.escape(_SECTION_RULE)}\n(.+)\n{re.escape(_SECTION_RULE)}\n")
-
-
-def _split_report_sections(text: str) -> tuple[str, str, str]:
-    """Rohen Report-Text in (Klassifikationstabelle, Top-k-Block, CV-Block) aufteilen.
-
-    Das Trainingsskript hängt beide Zusatzblöcke ans Ende der sklearn-
-    ``classification_report``-Tabelle an, eingeleitet durch eine
-    ``{_SECTION_RULE}\\n<Titel>\\n{_SECTION_RULE}\\n``-Kopfzeile. Fehlt ein Block
-    (z. B. weil Cross-Validation nicht lief), ist der jeweilige Rückgabewert leer.
-    """
-    marks = [(m.start(), m.group(1).strip()) for m in _SECTION_HEADER_RE.finditer(text)]
-    boundaries = [(pos, label) for pos, label in marks if label in (_TOPK_MARKER, _CV_MARKER)]
-
-    if not boundaries:
-        return text.rstrip("\n"), "", ""
-
-    table = text[:boundaries[0][0]].rstrip("\n")
-    sections = {_TOPK_MARKER: "", _CV_MARKER: ""}
-    for i, (pos, label) in enumerate(boundaries):
-        end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(text)
-        sections[label] = text[pos:end].strip("\n")
-    return table, sections[_TOPK_MARKER], sections[_CV_MARKER]
-
-
 def report_text(model_file: str) -> str | None:
     """Klassifikations-Report eines Modells als Text, oder None.
 
-    Reihenfolge: Trainings-Konfiguration, Top-k/Hierarchie/Konfidenz,
-    Cross-Validierung, dann erst die klassenweise Auswertungstabelle
-    (in der Rohdatei steht die Tabelle zuerst, die Zusatzblöcke werden hier
-    nach vorne verschoben).
+    Reihenfolge (Top-k/Konfidenz/Hierarchie/Abdeckung, optional Cross-Validierung,
+    dann erst die klassenweise Auswertungstabelle unter "KOMPLETTE AUSWERTUNG")
+    steht schon so in der Rohdatei (siehe sachgruppen_classifier.train_and_evaluate) --
+    hier wird nur noch der Trainings-Konfigurationskopf aus den Metadaten vorangestellt.
     """
     report_path = MODELS_DIR / model_file.replace(".pkl", "_report.txt")
     if not report_path.exists():
         return None
-    table, topk_block, cv_block = _split_report_sections(report_path.read_text(encoding="utf-8"))
+    text = report_path.read_text(encoding="utf-8")
 
-    parts: list[str] = []
     meta_path = MODELS_DIR / model_file.replace(".pkl", "_metadata.json")
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            parts.append(_config_header(meta))
+            return _config_header(meta) + "\n\n" + text
         except (OSError, json.JSONDecodeError):
             pass
-    if topk_block:
-        parts.append(topk_block)
-    if cv_block:
-        parts.append(cv_block)
-    parts.append(f"{_SECTION_RULE}\nKOMPLETTE AUSWERTUNG\n{_SECTION_RULE}\n\n{table}")
-
-    return "\n\n".join(parts)
+    return text
