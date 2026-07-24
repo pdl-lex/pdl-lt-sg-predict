@@ -48,6 +48,16 @@ function saveText(name: string, text: string) {
   URL.revokeObjectURL(url)
 }
 
+// Modell samt Metadaten und Report als ZIP herunterladen. Als nativer
+// Browser-Download (Anker auf die API-URL), da die .pkl 100–330 MB groß sind —
+// ein Umweg über einen In-Memory-Blob würde diese Datenmenge im Tab puffern.
+function downloadModelBundle(file: string) {
+  const a = document.createElement('a')
+  a.href = `/api/models/${encodeURIComponent(file)}/bundle`
+  a.download = ''
+  a.click()
+}
+
 export function AnalyseProvider({ children }: { children: ReactNode }) {
   const { reloadModels } = useWorkbench()
   const [reportOpen, setReportOpen] = useState(false)
@@ -147,6 +157,14 @@ export function AnalyseMain() {
                 disabled={downloading || withReport.length === 0}
               >
                 {downloading ? 'Lädt…' : `Report herunterladen${withReport.length > 1 ? ` (${withReport.length})` : ''}`}
+              </GhostButton>
+              <GhostButton
+                icon="layers"
+                onClick={() => one && downloadModelBundle(String(one.model_file))}
+                disabled={!one}
+                title={one ? 'Modell, Metadaten und Report als ZIP' : 'Genau ein Modell auswählen'}
+              >
+                Modell herunterladen
               </GhostButton>
               <PrimaryButton
                 icon="sparkle"

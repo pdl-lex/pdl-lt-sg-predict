@@ -64,6 +64,11 @@ def test_predict_batch_rejects_non_csv():
     assert r.status_code == 422
 
 
+def test_model_bundle_missing_404():
+    r = client.get("/api/models/gibt_es_nicht.pkl/bundle")
+    assert r.status_code == 404
+
+
 def test_anleitung_markdown():
     r = client.get("/api/anleitung")
     assert r.status_code == 200

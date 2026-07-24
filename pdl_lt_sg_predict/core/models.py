@@ -171,6 +171,26 @@ def available_model_files() -> list[str]:
     ]
 
 
+def bundle_files(model_file: str) -> list[Path] | None:
+    """Vorhandene Bundle-Dateien eines Modells: Modell + Metadaten + Report.
+
+    Gibt ``None`` zurück, wenn ``model_file`` kein gültiges ``.pkl`` direkt in
+    MODELS_DIR ist — das schützt zugleich vor Pfad-Traversal. Metadaten- bzw.
+    Report-Datei werden nur aufgenommen, wenn sie existieren.
+    """
+    if not model_file.endswith(".pkl") or "/" in model_file or "\\" in model_file:
+        return None
+    pkl = MODELS_DIR / model_file
+    if not pkl.is_file() or pkl.resolve().parent != MODELS_DIR.resolve():
+        return None
+    stem = model_file[:-4]
+    extras = [
+        MODELS_DIR / f"{stem}_metadata.json",
+        MODELS_DIR / f"{stem}_report.txt",
+    ]
+    return [pkl, *(p for p in extras if p.is_file())]
+
+
 def model_uses_lemma(model_file: str) -> bool:
     """use_lemma aus den Metadaten lesen (Default True)."""
     meta_path = MODELS_DIR / model_file.replace(".pkl", "_metadata.json")

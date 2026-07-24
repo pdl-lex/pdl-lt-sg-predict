@@ -24,7 +24,7 @@ export function StatusBar() {
       <Item dot={enableTraining ? 'var(--lt-primary)' : 'var(--lt-warn)'} k="Training:" v={enableTraining ? 'aktiv' : 'aus'} />
       <Item k="Daten:" v={config?.models_dir ?? '–'} />
       <span style={{ flex: 1 }} />
-      <span style={{ padding: '0 10px', color: 'var(--lt-fg-4)' }}>Version 0.5</span>
+      <span style={{ padding: '0 10px', color: 'var(--lt-fg-4)' }}>Version 0.6</span>
     </footer>
   )
 }
