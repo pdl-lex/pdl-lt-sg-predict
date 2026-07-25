@@ -390,6 +390,10 @@ class SachgruppenClassifier:
                  nn_alpha: float = 0.0001,
                  nn_learning_rate_init: float = 0.0005,
                  nn_n_iter_no_change: int = 5,
+                 logistic_solver: str = 'lbfgs',
+                 logistic_max_iter: int = 1000,
+                 logistic_tol: float = 1e-4,
+                 logistic_c: float = 1.0,
                  calibrate: bool = False):
         """
         Args:
@@ -428,6 +432,15 @@ class SachgruppenClassifier:
             nn_alpha: L2 regularization strength for MLP (default: 0.0001)
             nn_learning_rate_init: Initial learning rate for MLP adam solver (default: 0.0005)
             nn_n_iter_no_change: Early-stopping patience for MLP, in epochs (default: 5)
+            logistic_solver: LogisticRegression solver (default: 'lbfgs'; 'saga' was the
+                old, much slower default — it needs ~1000 single-threaded epochs here)
+            logistic_max_iter: Max iterations/epochs for LogisticRegression (default: 1000)
+            logistic_tol: Convergence tolerance for LogisticRegression (default: 1e-4,
+                sklearn's default). Do NOT loosen for speed — measured on this data,
+                tol>=1e-3 makes lbfgs quit after ~2 s at a near-untrained solution
+                (0.3 % vs 65 % accuracy), silently and without a ConvergenceWarning.
+                The speedup comes from the lbfgs solver, not from a looser tolerance.
+            logistic_c: Inverse regularization strength C for LogisticRegression (default: 1.0)
             calibrate: Wrap the classifier in CalibratedClassifierCV (Platt/sigmoid,
                 cv=3, ensemble=False) so predicted probabilities are honest and
                 threshold-based auto-accept becomes meaningful. Only applied for
@@ -466,6 +479,10 @@ class SachgruppenClassifier:
         self.nn_alpha = nn_alpha
         self.nn_learning_rate_init = nn_learning_rate_init
         self.nn_n_iter_no_change = nn_n_iter_no_change
+        self.logistic_solver = logistic_solver
+        self.logistic_max_iter = logistic_max_iter
+        self.logistic_tol = logistic_tol
+        self.logistic_c = logistic_c
         self.calibrate = calibrate
         self.pipeline = None
         self.classes_ = None
@@ -585,13 +602,19 @@ class SachgruppenClassifier:
             )
         
         elif self.model_type == 'logistic':
+            # Speedup kommt vom Solver: lbfgs (Batch-Quasi-Newton) konvergiert bei L2 in
+            # wenigen Iterationen statt der ~1000 einkernigen saga-Epochen. tol bleibt bei
+            # 1e-4 — lockereres tol lässt lbfgs zu früh (nach ~2 s) an einem quasi
+            # untrainierten Punkt aufhören, still und ohne ConvergenceWarning (gemessen
+            # 0,3 % statt 65 % Accuracy). n_jobs entfällt — seit sklearn 1.8 wirkungslos
+            # (FutureWarning) und je Fit ohnehin single-thread.
             classifier = LogisticRegression(
-                C=1.0,
-                max_iter=1000,
+                C=self.logistic_c,
+                max_iter=self.logistic_max_iter,
+                tol=self.logistic_tol,
                 class_weight='balanced',
                 random_state=self.random_state,
-                solver='saga',
-                n_jobs=-1,
+                solver=self.logistic_solver,
                 verbose=1
             )
 
@@ -1387,6 +1410,8 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
                        xgb_learning_rate=0.05, xgb_subsample=0.8,
                        nn_hidden_layer_sizes=(100,), nn_alpha=0.0001,
                        nn_learning_rate_init=0.0005, nn_n_iter_no_change=5,
+                       logistic_solver='lbfgs', logistic_max_iter=1000,
+                       logistic_tol=1e-4, logistic_c=1.0,
                        calibrate=False,
                        tune_n_iter=20, tune_cv=3,
                        cross_validate=False, cv_folds=5, cv_mode='stratified',
@@ -1441,6 +1466,20 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
             if real_lemmata.empty:
                 print("Info: Lemma-Spalte leer – use_lemma automatisch deaktiviert.")
                 use_lemma = False
+
+    # Fehlendes Lemma pro Zeile ist zulässig: als Platzhalter behandeln statt die
+    # Zeile zu verwerfen. Sonst entfernt das folgende dropna jede Zeile ohne Lemma
+    # (in woerterbuch_daten_fsp.csv ~69k von 193k), obwohl deren bedeutung+sachgruppe
+    # gültig sind. So entscheidet nur bedeutung/sachgruppe über dropna; Zeilen ohne
+    # Lemma bleiben mit dem 'LEER'-Token erhalten (gleicher Platzhalter wie bei
+    # leeren Lemma-Strings weiter unten).
+    if use_lemma and 'lemma' in df.columns:
+        n_missing_lemma = int(df['lemma'].isna().sum())
+        if n_missing_lemma > 0:
+            print(f"Info: {n_missing_lemma} Zeilen ohne Lemma – Lemma auf 'LEER' gesetzt "
+                  f"(Zeile bleibt erhalten).")
+            df = df.copy()
+            df['lemma'] = df['lemma'].fillna('LEER')
 
     required_cols = (['lemma', 'bedeutung', 'sachgruppe'] if use_lemma
                      else ['bedeutung', 'sachgruppe'])
@@ -1564,6 +1603,10 @@ def train_and_evaluate(csv_file, model_type='svm', test_size=0.2,
         nn_alpha=nn_alpha,
         nn_learning_rate_init=nn_learning_rate_init,
         nn_n_iter_no_change=nn_n_iter_no_change,
+        logistic_solver=logistic_solver,
+        logistic_max_iter=logistic_max_iter,
+        logistic_tol=logistic_tol,
+        logistic_c=logistic_c,
         calibrate=calibrate,
     )
     clf.train(X_train, y_train, tune_hyperparameters=tune,
@@ -1853,6 +1896,18 @@ if __name__ == '__main__':
                              'Klassifikator-Fit ~3x.')
     parser.add_argument('--nn-n-iter-no-change', type=int, default=5,
                         help='NN: early-stopping patience in epochs (default: 5)')
+    parser.add_argument('--logistic-solver', type=str, default='lbfgs',
+                        choices=['lbfgs', 'saga', 'newton-cg'],
+                        help='Logistic: solver (default: lbfgs — fast, converges in few '
+                             'iterations for L2; saga is the old, much slower default)')
+    parser.add_argument('--logistic-max-iter', type=int, default=1000,
+                        help='Logistic: max iterations/epochs (default: 1000)')
+    parser.add_argument('--logistic-tol', type=float, default=1e-4,
+                        help='Logistic: convergence tolerance (default: 1e-4). Do NOT '
+                             'loosen for speed — tol>=1e-3 makes lbfgs quit prematurely '
+                             'at a near-untrained solution on this data')
+    parser.add_argument('--logistic-c', type=float, default=1.0,
+                        help='Logistic: inverse regularization strength C (default: 1.0)')
     parser.add_argument('--use-svd', action='store_true',
                         help='Enable TruncatedSVD (LSA) dimensionality reduction (XGBoost: right '
                              'after the vectorizer; NN: after the MaxAbsScaler)')
@@ -1915,10 +1970,16 @@ if __name__ == '__main__':
         tune_cv = max(2, args.tune_cv)
         batch_results = []
 
-        # Determine sample count once (for metadata and time estimation)
+        # Determine sample count once (for metadata and time estimation).
+        # Muss der Bereinigung in train_and_evaluate entsprechen: dort werden fehlende
+        # Lemmata mit 'LEER' aufgefüllt (nicht verworfen), es entscheiden also nur
+        # bedeutung/sachgruppe über dropna. Früher stand 'lemma' mit im subset → die
+        # ~69k lemmalosen Zeilen wurden abgezogen und num_samples war zu klein
+        # (z. B. 124217 statt 193688 bei woerterbuch_daten_fsp.csv).
         try:
             _df_tmp = pd.read_csv(args.csv, sep=None, engine='python')
-            num_samples = int(len(_df_tmp.dropna(subset=['lemma', 'bedeutung', 'sachgruppe'])))
+            _df_tmp.columns = [c.lstrip('﻿').strip() for c in _df_tmp.columns]
+            num_samples = int(len(_df_tmp.dropna(subset=['bedeutung', 'sachgruppe'])))
             del _df_tmp
         except Exception:
             num_samples = 0
@@ -1997,6 +2058,10 @@ if __name__ == '__main__':
                     nn_alpha=args.nn_alpha,
                     nn_learning_rate_init=args.nn_learning_rate_init,
                     nn_n_iter_no_change=args.nn_n_iter_no_change,
+                    logistic_solver=args.logistic_solver,
+                    logistic_max_iter=args.logistic_max_iter,
+                    logistic_tol=args.logistic_tol,
+                    logistic_c=args.logistic_c,
                     calibrate=args.calibrate,
                     use_svd=args.use_svd,
                     svd_components=args.svd_components,

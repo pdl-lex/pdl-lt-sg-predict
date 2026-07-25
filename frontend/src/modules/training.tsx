@@ -19,9 +19,13 @@ const XGB_SUB = ['0.5', '0.6', '0.7', '0.8', '0.9', '1.0']
 const NN_LAYERS = ['100', '200,100', '200,100,50', '300,150,75', '400,200,100,50']
 const NN_ALPHA = ['0.00001', '0.0001', '0.001', '0.01', '0.1']
 const NN_LR = ['0.0001', '0.0005', '0.001', '0.005', '0.01']
+const LOGI_SOLVER = ['lbfgs', 'saga', 'newton-cg']
+const LOGI_MAXITER = ['300', '500', '1000', '2000']
+// tol >= 1e-3 lässt lbfgs vorzeitig aufgeben (near-untrained, ~0,3 % Accuracy) → nicht anbieten.
+const LOGI_TOL = ['0.001', '0.0001', '0.00001']
 const BATCH_ANALYZERS = ['char_wb', 'word-(1,1)', 'word-(1,2)']
 const BATCH_MINLENS = [1, 2, 3]
-const TIME_FALLBACK: Record<string, number> = { svm: 120, logistic: 4286, rf: 30, nn: 111, xgboost: 6112 }
+const TIME_FALLBACK: Record<string, number> = { svm: 120, logistic: 1200, rf: 30, nn: 111, xgboost: 6112 }
 const TIME_FALLBACK_SAMPLES = 113127
 
 // Entspricht der Dedupe-Logik in core/training.py:start_batch — word-(1,1) und
@@ -37,6 +41,7 @@ interface Cfg {
   tune_mode: string; tune_n_iter: number; tune_cv: number
   svm_c: string; xgb_n_estimators: string; xgb_max_depth: string; xgb_learning_rate: string; xgb_subsample: string
   nn_hidden_layers: string; nn_alpha: string; nn_learning_rate_init: string
+  logistic_solver: string; logistic_max_iter: string; logistic_tol: string; logistic_c: string
   batch_model_types: string[]; batch_use_stopwords: boolean[]; batch_min_lengths: number[]; batch_analyzers: string[]
 }
 
@@ -48,6 +53,7 @@ const DEFAULT_CFG: Cfg = {
   tune_mode: 'standard', tune_n_iter: 20, tune_cv: 3,
   svm_c: '1.0', xgb_n_estimators: '300', xgb_max_depth: '6', xgb_learning_rate: '0.05', xgb_subsample: '0.8',
   nn_hidden_layers: '100', nn_alpha: '0.0001', nn_learning_rate_init: '0.0005',
+  logistic_solver: 'lbfgs', logistic_max_iter: '1000', logistic_tol: '0.0001', logistic_c: '1.0',
   batch_model_types: ['svm'], batch_use_stopwords: [false], batch_min_lengths: [1], batch_analyzers: ['char_wb'],
 }
 
@@ -247,6 +253,12 @@ export function TrainingConfig() {
           <>
             <ParamGroup title="Linear SVM">
               <Field label="C (Regularisierung)"><Select value={cfg.svm_c} onChange={(v) => set('svm_c', v)} options={opts(SVM_C)} /></Field>
+            </ParamGroup>
+            <ParamGroup title="Logistic Regression">
+              <Field label="Solver"><Select value={cfg.logistic_solver} onChange={(v) => set('logistic_solver', v)} options={opts(LOGI_SOLVER)} /></Field>
+              <Field label="max_iter"><Select value={cfg.logistic_max_iter} onChange={(v) => set('logistic_max_iter', v)} options={opts(LOGI_MAXITER)} /></Field>
+              <Field label="tol (Konvergenz)"><Select value={cfg.logistic_tol} onChange={(v) => set('logistic_tol', v)} options={opts(LOGI_TOL)} /></Field>
+              <Field label="C (Regularisierung)"><Select value={cfg.logistic_c} onChange={(v) => set('logistic_c', v)} options={opts(SVM_C)} /></Field>
             </ParamGroup>
             <ParamGroup title="XGBoost">
               <Field label="n_estimators"><Select value={cfg.xgb_n_estimators} onChange={(v) => set('xgb_n_estimators', v)} options={opts(XGB_N)} /></Field>

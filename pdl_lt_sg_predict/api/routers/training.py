@@ -23,6 +23,10 @@ class HyperParams(BaseModel):
     nn_hidden_layers: str = "100"
     nn_alpha: float = 0.0001
     nn_learning_rate_init: float = 0.0005
+    logistic_solver: str = "lbfgs"  # lbfgs | saga | newton-cg
+    logistic_max_iter: int = 1000
+    logistic_tol: float = 0.0001  # NICHT lockern: >=1e-3 lässt lbfgs vorzeitig aufgeben
+    logistic_c: float = 1.0
     use_spacy: bool = True
     use_dornseiff: bool = True
     calibrate: bool = True  # Konfidenz-Kalibrierung (wirkt nur bei svm; beim nn Softmax bereits gut kalibriert)

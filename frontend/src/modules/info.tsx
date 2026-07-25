@@ -78,6 +78,7 @@ export function InfoMain() {
         </Section>
         <Section eyebrow="Lizenz">
           <p style={{ margin: 0 }}>Der Quelltext und die Modelle dieses Tools sind unter CC-BY 4.0 veröffentlicht (Bayerische Akademie der Wissenschaften).</p>
+          <p style={{ margin: 0 }}>Sachgruppen: CC-BY Rudolf Post</p>
           <p style={{ margin: 0 }}>Der Code steht unter <a href="https://github.com/pdl-lex/pdl-lt-sg-predict" target="_blank" rel="noreferrer">https://github.com/pdl-lex/pdl-lt-sg-predict</a> zur Verfügung.</p>
         </Section>
         <Section eyebrow="Konzeption &amp; Programmierung">
