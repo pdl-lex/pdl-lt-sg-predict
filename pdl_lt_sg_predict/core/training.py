@@ -24,8 +24,9 @@ from .bridge import (
 )
 
 # Fallback-Trainingszeiten (Sekunden) für ~113 127 Samples (Referenzmaschine).
+# logistic: mit dem neuen lbfgs/tol=1e-2-Default statt des alten saga (~4286 s).
 _TIME_FALLBACKS: dict[str, float] = {
-    "svm": 120.0, "logistic": 4286.0, "rf": 30.0, "nn": 111.0, "xgboost": 6112.0,
+    "svm": 120.0, "logistic": 1200.0, "rf": 30.0, "nn": 111.0, "xgboost": 6112.0,
 }
 _TIME_FALLBACK_SAMPLES = 113_127
 
@@ -107,6 +108,10 @@ class TrainingManager:
             "--nn-hidden-layers", str(cfg.get("nn_hidden_layers", "100")),
             "--nn-alpha", str(cfg.get("nn_alpha", 0.0001)),
             "--nn-learning-rate-init", str(cfg.get("nn_learning_rate_init", 0.0005)),
+            "--logistic-solver", str(cfg.get("logistic_solver", "lbfgs")),
+            "--logistic-max-iter", str(cfg.get("logistic_max_iter", 1000)),
+            "--logistic-tol", str(cfg.get("logistic_tol", 0.0001)),
+            "--logistic-c", str(cfg.get("logistic_c", 1.0)),
             "--output-dir", str(MODELS_DIR),
             "--progress-file", str(progress_file),
         ]
