@@ -30,6 +30,8 @@ dev = [
     "httpx>=0.28.1", # für starlette TestClient in tests/
     "lxml>=6.1.1",
     # Nur von den Analyse-Skripten (scripts/) genutzt, nicht vom Backend/ML-Kern.
+    # psycopg: scripts/extract_data.py --quelle db (Wörterbuch-Datenbank wbdb).
+    "psycopg[binary]>=3.2",
     "matplotlib>=3.10.8",
     "seaborn>=0.13.2",
 ]
