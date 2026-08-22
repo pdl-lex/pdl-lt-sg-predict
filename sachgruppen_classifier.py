@@ -447,7 +447,9 @@ class SachgruppenClassifier:
                 'svm' (gains predict_proba); other types are unaffected, including
                 'nn' — its softmax is already well calibrated, and Platt scaling
                 measurably makes it worse (see evaluate_calibration.py, 07/2026).
-                Roughly triples the classifier-fit time (3 CV fits + 1 final fit).
+                Fits the classifier 3 CV folds + 1 final fit; the 3 CV folds run
+                in parallel via n_jobs=-1 (the final full fit stays single-core,
+                liblinear/LinearSVC doesn't parallelize a single fit).
         """
         self.model_type = model_type
         self.random_state = random_state
@@ -691,7 +693,7 @@ class SachgruppenClassifier:
         # so only the classifier fit is repeated.
         if self.calibrate and self.model_type == 'svm':
             classifier = CalibratedClassifierCV(
-                classifier, method='sigmoid', cv=3, ensemble=False,
+                classifier, method='sigmoid', cv=3, ensemble=False, n_jobs=-1,
             )
 
         # Pipeline assembly: Punctuation → MinLength → Stopwords → Vectorizer → Classifier
