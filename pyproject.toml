@@ -21,7 +21,7 @@ dependencies = [
     "shap>=0.46.0",
     "tqdm>=4.67.3",
     "spacy>=3.7",
-    "de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl",
+    "de-core-news-lg",
 ]
 
 [dependency-groups]
@@ -35,6 +35,13 @@ dev = [
     "matplotlib>=3.10.8",
     "seaborn>=0.13.2",
 ]
+
+[tool.uv.sources]
+# Lokal vorgehalten statt GitHub-URL: uv-Sync-Check hing sonst auch bei bereits
+# installiertem Paket am Netzwerk (Erreichbarkeitsprüfung der URL), was `uv run`
+# ohne Internetverbindung hart scheitern ließ. wheels/ ist gitignored (Größe),
+# syncet aber via Nextcloud auf alle Rechner mit.
+de-core-news-lg = { path = "wheels/de_core_news_lg-3.8.0-py3-none-any.whl" }
 
 [build-system]
 requires = ["setuptools>=77"]

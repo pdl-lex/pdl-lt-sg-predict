@@ -226,9 +226,9 @@ wheels = [
 [[package]]
 name = "de-core-news-lg"
 version = "3.8.0"
-source = { url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl" }
+source = { path = "wheels/de_core_news_lg-3.8.0-py3-none-any.whl" }
 wheels = [
-    { url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl", hash = "sha256:36fda650e476b54d5e87803635e36dadd1e8e034c4b5962088586d684f4c9fed" },
+    { filename = "de_core_news_lg-3.8.0-py3-none-any.whl", hash = "sha256:36fda650e476b54d5e87803635e36dadd1e8e034c4b5962088586d684f4c9fed" },
 ]
 
 [[package]]
@@ -469,7 +469,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "de-core-news-lg", url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl" },
+    { name = "de-core-news-lg", path = "wheels/de_core_news_lg-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "numpy", specifier = ">=2.4.2,<2.5" },
     { name = "pandas", specifier = ">=3.0.0" },
